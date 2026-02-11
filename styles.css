@@ -711,6 +711,10 @@ select:focus {
   padding: 18px;
 }
 
+.poster-modal[hidden] {
+  display: none !important;
+}
+
 .poster-dialog {
   width: min(520px, 96vw);
   max-height: 94vh;
