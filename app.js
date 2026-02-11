@@ -263,6 +263,9 @@ let scene3d = null;
 let scene3dGraphicsLayer = null;
 let scene3dReady = false;
 let pending3dSpotId = null;
+let scene3dRequestSeq = 0;
+let buildingsLayerView = null;
+let buildingsHighlightHandle = null;
 
 initSelects();
 hydrateStateFromUrl();
@@ -1086,6 +1089,15 @@ function initScene3D() {
 
       scene3d.ui.components = ["zoom", "compass"];
 
+      scene3d.whenLayerView(buildingsLayer).then(
+        (layerView) => {
+          buildingsLayerView = layerView;
+        },
+        () => {
+          buildingsLayerView = null;
+        }
+      );
+
       scene3d.when(
         () => {
           scene3dReady = true;
@@ -1118,7 +1130,8 @@ function initScene3D() {
         }
       });
 
-      scene3d.updateSpotCamera = (spot) => {
+      scene3d.updateSpotCamera = async (spot) => {
+        const requestId = ++scene3dRequestSeq;
         const sceneConfig = getSpotSceneConfig(spot);
         const mapLng = getSpotMapLng(spot);
         const mapLat = getSpotMapLat(spot);
@@ -1162,13 +1175,54 @@ function initScene3D() {
         scene3dGraphicsLayer.removeAll();
         scene3dGraphicsLayer.add(markerGraphic);
 
+        let target = {
+          longitude: mapLng,
+          latitude: mapLat,
+          altitude: sceneConfig.altitude,
+          matchedBuilding: false
+        };
+
+        try {
+          const nearestBuilding = await queryNearestBuildingModel(buildingsLayer, mapLng, mapLat);
+          if (requestId !== scene3dRequestSeq) {
+            return;
+          }
+
+          if (nearestBuilding) {
+            target = {
+              longitude: nearestBuilding.longitude,
+              latitude: nearestBuilding.latitude,
+              altitude: Math.max(sceneConfig.altitude, nearestBuilding.altitude),
+              matchedBuilding: true
+            };
+
+            if (buildingsHighlightHandle) {
+              buildingsHighlightHandle.remove();
+              buildingsHighlightHandle = null;
+            }
+
+            if (buildingsLayerView && nearestBuilding.objectId != null) {
+              buildingsHighlightHandle = buildingsLayerView.highlight([nearestBuilding.objectId]);
+            }
+          } else {
+            if (buildingsHighlightHandle) {
+              buildingsHighlightHandle.remove();
+              buildingsHighlightHandle = null;
+            }
+          }
+        } catch (error) {
+          if (requestId !== scene3dRequestSeq) {
+            return;
+          }
+        }
+
         scene3d
           .goTo(
             {
               position: {
-                longitude: mapLng,
-                latitude: mapLat,
-                z: sceneConfig.altitude
+                longitude: target.longitude,
+                latitude: target.latitude,
+                z: target.altitude
               },
               heading: sceneConfig.heading,
               tilt: sceneConfig.tilt
@@ -1179,6 +1233,14 @@ function initScene3D() {
             }
           )
           .catch(() => {});
+
+        if (requestId !== scene3dRequestSeq) {
+          return;
+        }
+
+        refs.scene3dHint.textContent = target.matchedBuilding
+          ? "已锁定离景点最近的 3D 建筑模型，可继续拖拽微调视角。"
+          : "未匹配到近邻建筑模型，已定位到景点中心。";
       };
     }
   );
@@ -1200,17 +1262,23 @@ function updateSpot3DById(spotId) {
     return;
   }
 
-  refs.scene3dHint.textContent = "已启用坐标纠偏，拖拽可旋转 3D 场景，滚轮可缩放。";
+  refs.scene3dHint.textContent = "正在匹配该景点最近的 3D 建筑模型...";
   scene3d.updateSpotCamera(spot);
 }
 
 function resetScene3D() {
+  scene3dRequestSeq += 1;
   state.active3dSpotId = null;
   refs.scene3dTitle.textContent = "景点 3D 图";
   refs.scene3dMeta.textContent = "点击左侧景点后显示该地点 3D 视角";
 
   if (scene3dGraphicsLayer) {
     scene3dGraphicsLayer.removeAll();
+  }
+
+  if (buildingsHighlightHandle) {
+    buildingsHighlightHandle.remove();
+    buildingsHighlightHandle = null;
   }
 
   if (scene3d && scene3dReady) {
@@ -1488,6 +1556,147 @@ function transformLongitude(x, y) {
   result += ((20.0 * Math.sin(x * Math.PI) + 40.0 * Math.sin((x / 3.0) * Math.PI)) * 2.0) / 3.0;
   result += ((150.0 * Math.sin((x / 12.0) * Math.PI) + 300.0 * Math.sin((x / 30.0) * Math.PI)) * 2.0) / 3.0;
   return result;
+}
+
+async function queryNearestBuildingModel(buildingsLayer, longitude, latitude) {
+  if (!buildingsLayer || typeof buildingsLayer.createQuery !== "function") {
+    return null;
+  }
+
+  const query = buildingsLayer.createQuery();
+  query.geometry = {
+    type: "point",
+    longitude,
+    latitude,
+    spatialReference: { wkid: 4326 }
+  };
+  query.distance = 150;
+  query.units = "meters";
+  query.returnGeometry = true;
+  query.outFields = ["*"];
+  query.num = 24;
+
+  const result = await buildingsLayer.queryFeatures(query);
+  const features = result?.features || [];
+  if (!features.length) {
+    return null;
+  }
+
+  let nearest = null;
+  features.forEach((feature) => {
+    const center = getFeatureCenter(feature?.geometry);
+    if (!center) {
+      return;
+    }
+
+    const distanceKm = haversine(
+      { mapLat: latitude, mapLng: longitude },
+      { mapLat: center.latitude, mapLng: center.longitude }
+    );
+
+    if (!nearest || distanceKm < nearest.distanceKm) {
+      nearest = {
+        distanceKm,
+        longitude: center.longitude,
+        latitude: center.latitude,
+        altitude: getFeatureCameraAltitude(feature),
+        objectId: getFeatureObjectId(feature)
+      };
+    }
+  });
+
+  return nearest;
+}
+
+function getFeatureCenter(geometry) {
+  if (!geometry) {
+    return null;
+  }
+
+  if (
+    geometry.type === "point" &&
+    Number.isFinite(geometry.longitude) &&
+    Number.isFinite(geometry.latitude)
+  ) {
+    return {
+      longitude: geometry.longitude,
+      latitude: geometry.latitude
+    };
+  }
+
+  if (geometry.extent?.center) {
+    const center = geometry.extent.center;
+    if (Number.isFinite(center.longitude) && Number.isFinite(center.latitude)) {
+      return {
+        longitude: center.longitude,
+        latitude: center.latitude
+      };
+    }
+  }
+
+  if (Array.isArray(geometry.rings) && geometry.rings.length) {
+    const ring = geometry.rings[0];
+    if (Array.isArray(ring) && ring.length) {
+      let lngSum = 0;
+      let latSum = 0;
+      let count = 0;
+      ring.forEach((point) => {
+        const lng = point?.[0];
+        const lat = point?.[1];
+        if (Number.isFinite(lng) && Number.isFinite(lat)) {
+          lngSum += lng;
+          latSum += lat;
+          count += 1;
+        }
+      });
+
+      if (count) {
+        return {
+          longitude: lngSum / count,
+          latitude: latSum / count
+        };
+      }
+    }
+  }
+
+  return null;
+}
+
+function getFeatureCameraAltitude(feature) {
+  const attrs = feature?.attributes || {};
+  const candidates = [
+    attrs.height,
+    attrs.Height,
+    attrs.HEIGHT,
+    attrs.height_m,
+    attrs.HEIGHT_M,
+    attrs.ROOFHEIGHT,
+    attrs.BLDGHEIGHT,
+    attrs.HGT
+  ];
+
+  for (const value of candidates) {
+    const parsed = parseFloat(value);
+    if (Number.isFinite(parsed) && parsed > 0) {
+      return Math.max(420, Math.min(1200, Math.round(parsed * 6)));
+    }
+  }
+
+  return 760;
+}
+
+function getFeatureObjectId(feature) {
+  const attrs = feature?.attributes || {};
+  const objectIdKeys = ["OBJECTID", "ObjectId", "objectid", "FID", "fid"];
+
+  for (const key of objectIdKeys) {
+    const value = Number.parseInt(attrs[key], 10);
+    if (Number.isFinite(value)) {
+      return value;
+    }
+  }
+
+  return null;
 }
 
 function haversine(a, b) {
