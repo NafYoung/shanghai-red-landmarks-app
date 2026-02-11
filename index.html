@@ -56,6 +56,7 @@
           <button id="resetFilters" class="button ghost" type="button">重置筛选</button>
           <button id="focusShanghai" class="button" type="button">回到上海中心</button>
           <button id="shareApp" class="button" type="button">转发给朋友</button>
+          <button id="makePoster" class="button ghost" type="button">生成分享海报</button>
         </div>
         <p id="shareHint" class="share-hint" aria-live="polite">可分享当前筛选与路线状态</p>
       </section>
@@ -111,6 +112,7 @@
             <h3>推荐路线</h3>
             <button id="clearRoute" class="button ghost" type="button">清除路线</button>
           </div>
+          <p id="routeDataHint" class="route-data-hint">路线时间默认按城市速度估算。</p>
           <div id="routeCards" class="route-cards"></div>
           <div id="routePlan" class="route-plan"></div>
         </article>
@@ -125,11 +127,29 @@
       </section>
     </main>
 
+    <div id="posterModal" class="poster-modal" hidden>
+      <div class="poster-dialog" role="dialog" aria-modal="true" aria-label="分享海报">
+        <div class="poster-head">
+          <h3>分享海报</h3>
+          <button id="closePoster" class="button ghost" type="button">关闭</button>
+        </div>
+        <div class="poster-body">
+          <canvas id="posterCanvas" width="900" height="1600"></canvas>
+        </div>
+        <div class="poster-actions">
+          <button id="downloadPoster" class="button" type="button">下载海报</button>
+          <button id="copyPosterLink" class="button ghost" type="button">复制链接</button>
+        </div>
+        <p id="posterHint" class="poster-hint">海报生成中...</p>
+      </div>
+    </div>
+
     <script
       src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
       integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo="
       crossorigin=""
     ></script>
+    <script src="https://cdn.jsdelivr.net/npm/qrcode@1.5.4/build/qrcode.min.js"></script>
     <script src="https://js.arcgis.com/4.29/"></script>
     <script src="./app.js"></script>
   </body>

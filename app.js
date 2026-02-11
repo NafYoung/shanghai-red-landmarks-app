@@ -4,6 +4,8 @@ const URL_VERSION = "1";
 const ROUTE_START_MINUTE = 9 * 60 + 30;
 const URBAN_TRAVEL_SPEED_KMH = 22;
 const TRANSFER_BUFFER_MINUTES = 8;
+const ROUTE_FETCH_TIMEOUT_MS = 5500;
+const REAL_ROUTE_ENGINE_URL = "https://router.project-osrm.org";
 const STOP_TIME_BY_TYPE = {
   中共会址: 70,
   抗战遗址: 80,
@@ -170,17 +172,17 @@ const rawScenicSpots = [
 ];
 
 const SCENE_PRESETS_BY_ID = {
-  sihang: { heading: 102, tilt: 74, altitude: 620 },
-  site1: { heading: 42, tilt: 73, altitude: 520 },
-  site2: { heading: 26, tilt: 72, altitude: 560 },
-  site4: { heading: 38, tilt: 71, altitude: 640 },
-  longhua: { heading: 148, tilt: 69, altitude: 760 },
-  songhu: { heading: 126, tilt: 68, altitude: 940 },
-  anthem: { heading: 66, tilt: 72, altitude: 650 },
-  luxun: { heading: 54, tilt: 71, altitude: 640 },
-  soong: { heading: 34, tilt: 72, altitude: 620 },
-  cy: { heading: 118, tilt: 68, altitude: 980 },
-  youth: { heading: 44, tilt: 73, altitude: 560 }
+  sihang: { heading: 102, tilt: 74, altitude: 620, anchorOffsetLat: -0.00003, anchorOffsetLng: -0.0002 },
+  site1: { heading: 42, tilt: 73, altitude: 520, anchorOffsetLat: 0.00006, anchorOffsetLng: -0.00008 },
+  site2: { heading: 26, tilt: 72, altitude: 560, anchorOffsetLat: -0.00004, anchorOffsetLng: -0.00006 },
+  site4: { heading: 38, tilt: 71, altitude: 640, anchorOffsetLat: 0.00005, anchorOffsetLng: -0.00008 },
+  longhua: { heading: 148, tilt: 69, altitude: 760, anchorOffsetLat: 0.00006, anchorOffsetLng: -0.00003 },
+  songhu: { heading: 126, tilt: 68, altitude: 940, anchorOffsetLat: -0.00008, anchorOffsetLng: -0.0001 },
+  anthem: { heading: 66, tilt: 72, altitude: 650, anchorOffsetLat: -0.00003, anchorOffsetLng: -0.00004 },
+  luxun: { heading: 54, tilt: 71, altitude: 640, anchorOffsetLat: 0.00005, anchorOffsetLng: -0.00005 },
+  soong: { heading: 34, tilt: 72, altitude: 620, anchorOffsetLat: 0.00007, anchorOffsetLng: -0.00004 },
+  cy: { heading: 118, tilt: 68, altitude: 980, anchorOffsetLat: -0.00004, anchorOffsetLng: -0.00003 },
+  youth: { heading: 44, tilt: 73, altitude: 560, anchorOffsetLat: 0.00004, anchorOffsetLng: -0.00005 }
 };
 
 const scenicSpots = rawScenicSpots.map((spot) => {
@@ -193,6 +195,8 @@ const scenicSpots = rawScenicSpots.map((spot) => {
       heading: 36,
       tilt: 72,
       altitude: 900,
+      anchorOffsetLat: 0,
+      anchorOffsetLng: 0,
       ...(SCENE_PRESETS_BY_ID[spot.id] || {})
     }
   };
@@ -235,8 +239,10 @@ const refs = {
   resetFilters: document.getElementById("resetFilters"),
   focusShanghai: document.getElementById("focusShanghai"),
   shareApp: document.getElementById("shareApp"),
+  makePoster: document.getElementById("makePoster"),
   shareHint: document.getElementById("shareHint"),
   clearRoute: document.getElementById("clearRoute"),
+  routeDataHint: document.getElementById("routeDataHint"),
   totalCount: document.getElementById("totalCount"),
   districtCount: document.getElementById("districtCount"),
   earliestYear: document.getElementById("earliestYear"),
@@ -249,7 +255,13 @@ const refs = {
   mapSpotInfo: document.getElementById("mapSpotInfo"),
   scene3dTitle: document.getElementById("scene3dTitle"),
   scene3dMeta: document.getElementById("scene3dMeta"),
-  scene3dHint: document.getElementById("scene3dHint")
+  scene3dHint: document.getElementById("scene3dHint"),
+  posterModal: document.getElementById("posterModal"),
+  posterCanvas: document.getElementById("posterCanvas"),
+  closePoster: document.getElementById("closePoster"),
+  downloadPoster: document.getElementById("downloadPoster"),
+  copyPosterLink: document.getElementById("copyPosterLink"),
+  posterHint: document.getElementById("posterHint")
 };
 
 let map = null;
@@ -266,6 +278,12 @@ let pending3dSpotId = null;
 let scene3dRequestSeq = 0;
 let buildingsLayerView = null;
 let buildingsHighlightHandle = null;
+const routeLegMetricsCache = new Map();
+const routeLegMetricsInFlight = new Set();
+let routeMetricsLoading = false;
+let routeMetricsStatusNote = "";
+let routeMetricsRequestSeq = 0;
+let lastRouteMetricsRouteId = null;
 
 initSelects();
 hydrateStateFromUrl();
@@ -329,9 +347,52 @@ function bindEvents() {
     await shareCurrentView();
   });
 
+  refs.makePoster.addEventListener("click", async () => {
+    await openPosterModal();
+  });
+
   refs.clearRoute.addEventListener("click", () => {
     state.activeRouteId = null;
     updateView();
+  });
+
+  refs.closePoster.addEventListener("click", () => {
+    closePosterModal();
+  });
+
+  refs.posterModal.addEventListener("click", (event) => {
+    if (event.target === refs.posterModal) {
+      closePosterModal();
+    }
+  });
+
+  refs.downloadPoster.addEventListener("click", () => {
+    downloadPosterImage();
+  });
+
+  refs.copyPosterLink.addEventListener("click", async () => {
+    const shareUrl = buildShareUrl();
+    if (!shareUrl) {
+      setPosterHint("当前是本地文件模式，无法生成可转发链接。");
+      return;
+    }
+
+    try {
+      await navigator.clipboard.writeText(shareUrl);
+      setPosterHint("链接已复制，可直接发给朋友。");
+    } catch (error) {
+      if (fallbackCopyText(shareUrl)) {
+        setPosterHint("链接已复制，可直接发给朋友。");
+      } else {
+        setPosterHint("复制失败，请手动复制地址栏链接。");
+      }
+    }
+  });
+
+  document.addEventListener("keydown", (event) => {
+    if (event.key === "Escape" && !refs.posterModal.hidden) {
+      closePosterModal();
+    }
   });
 
   bindMapMoveEnd();
@@ -382,13 +443,18 @@ function updateView() {
   renderMap(filtered);
   renderStats(filtered);
   renderTimeline(filtered);
+  renderRouteCards();
   renderRoutePlan();
+  renderRouteDataHint();
   syncRouteCardState();
   syncUrlState();
+  prefetchActiveRouteMetrics();
 
   const fallbackSpotId = state.selectedSpotId || filtered[0]?.id || null;
   if (fallbackSpotId) {
-    updateSpot3DById(fallbackSpotId);
+    if (state.active3dSpotId !== fallbackSpotId || !scene3dReady) {
+      updateSpot3DById(fallbackSpotId);
+    }
     updateMapSpotInfo(scenicById.get(fallbackSpotId) || null);
   } else {
     resetScene3D();
@@ -588,11 +654,12 @@ function renderRouteCards() {
     card.dataset.id = route.id;
 
     const planInfo = getRoutePlanInfo(route);
+    const sourceLabel = getPlanSourceLabel(planInfo);
     card.innerHTML = `
       <h4>${route.title}</h4>
       <p>${route.description}</p>
       <div class="route-meta">
-        <span class="meta-chip">${route.spotIds.length} 个点 · 约 ${planInfo.totalDistanceKm.toFixed(1)} km · ${formatDuration(planInfo.totalMinutes)}</span>
+        <span class="meta-chip">${route.spotIds.length} 个点 · 约 ${planInfo.totalDistanceKm.toFixed(1)} km · ${formatDuration(planInfo.totalMinutes)} · ${sourceLabel}</span>
         <button class="button" type="button">查看路线</button>
       </div>
     `;
@@ -630,6 +697,7 @@ function renderRoutePlan() {
   summary.innerHTML = `
     <h4>${activeRoute.title} · 打卡计划</h4>
     <p>停留约 ${formatDuration(planInfo.totalVisitMinutes)}，路途约 ${formatDuration(planInfo.totalTravelMinutes)}。</p>
+    <p>路线数据：${getPlanSourceLabel(planInfo)}</p>
     <div class="plan-summary-meta">
       <span class="meta-chip">建议出发 ${formatClock(planInfo.startMinute)}</span>
       <span class="meta-chip">预计完成 ${formatClock(planInfo.endMinute)}</span>
@@ -645,8 +713,12 @@ function renderRoutePlan() {
     const item = document.createElement("article");
     item.className = "plan-step";
 
+    const sourceTag = step.nextTransfer
+      ? `<span class="plan-step-source">${step.nextTransfer.source === "real" ? "真实路网" : "估算"}</span>`
+      : "";
+
     const transferLine = step.nextTransfer
-      ? `下一站：${step.nextTransfer.nextSpotName} · 约 ${step.nextTransfer.distanceKm.toFixed(1)} km / ${step.nextTransfer.travelMinutes} 分钟（${step.nextTransfer.transitMode}）`
+      ? `下一站：${step.nextTransfer.nextSpotName} · 约 ${step.nextTransfer.distanceKm.toFixed(1)} km / ${step.nextTransfer.travelMinutes} 分钟（${step.nextTransfer.transitMode}）${sourceTag}`
       : "终点站：本路线打卡完成。";
 
     item.innerHTML = `
@@ -715,6 +787,224 @@ function getRouteDistance(route) {
   return getRoutePlanInfo(route).totalDistanceKm;
 }
 
+function getRouteLegCacheKey(fromSpot, toSpot) {
+  return `${fromSpot.id}->${toSpot.id}`;
+}
+
+function getRouteLegMetrics(fromSpot, toSpot) {
+  const cacheKey = getRouteLegCacheKey(fromSpot, toSpot);
+  const cached = routeLegMetricsCache.get(cacheKey);
+  if (cached) {
+    return cached;
+  }
+
+  const distanceKm = haversine(fromSpot, toSpot);
+  return {
+    distanceKm,
+    travelMinutes: getTravelMinutes(distanceKm),
+    transitMode: getTransitMode(distanceKm),
+    source: "estimated"
+  };
+}
+
+function getPlanSourceLabel(planInfo) {
+  if (!planInfo.totalLegCount) {
+    return "无路段数据";
+  }
+
+  if (planInfo.realLegCount === planInfo.totalLegCount) {
+    return "真实路网";
+  }
+
+  if (planInfo.realLegCount === 0) {
+    return "估算";
+  }
+
+  return `混合（真实 ${planInfo.realLegCount}/${planInfo.totalLegCount}）`;
+}
+
+function renderRouteDataHint() {
+  if (!refs.routeDataHint) {
+    return;
+  }
+
+  refs.routeDataHint.classList.remove("loading", "partial");
+
+  const activeRoute = getActiveRoute();
+  if (!activeRoute) {
+    refs.routeDataHint.textContent = "路线时间默认按城市速度估算。";
+    return;
+  }
+
+  const planInfo = getRoutePlanInfo(activeRoute);
+  if (routeMetricsLoading) {
+    refs.routeDataHint.textContent = "正在加载真实路网里程与时间...";
+    refs.routeDataHint.classList.add("loading");
+    return;
+  }
+
+  if (planInfo.realLegCount === planInfo.totalLegCount && planInfo.totalLegCount > 0) {
+    refs.routeDataHint.textContent = "当前路线已使用真实路网时间。";
+    return;
+  }
+
+  if (routeMetricsStatusNote) {
+    refs.routeDataHint.textContent = routeMetricsStatusNote;
+    refs.routeDataHint.classList.add("partial");
+    return;
+  }
+
+  refs.routeDataHint.textContent = `当前路线有 ${planInfo.realLegCount}/${planInfo.totalLegCount} 段已获取真实路网时间。`;
+  if (planInfo.realLegCount < planInfo.totalLegCount) {
+    refs.routeDataHint.classList.add("partial");
+  }
+}
+
+function prefetchActiveRouteMetrics() {
+  const activeRoute = getActiveRoute();
+  if (!activeRoute) {
+    if (lastRouteMetricsRouteId !== null) {
+      routeMetricsRequestSeq += 1;
+      lastRouteMetricsRouteId = null;
+    }
+    routeMetricsLoading = false;
+    routeMetricsStatusNote = "";
+    return;
+  }
+
+  if (lastRouteMetricsRouteId !== activeRoute.id) {
+    routeMetricsRequestSeq += 1;
+    routeMetricsStatusNote = "";
+    lastRouteMetricsRouteId = activeRoute.id;
+  }
+
+  const routeSpots = activeRoute.spotIds.map((id) => scenicById.get(id)).filter(Boolean);
+  if (routeSpots.length < 2) {
+    return;
+  }
+
+  const missingPairs = [];
+  for (let i = 0; i < routeSpots.length - 1; i += 1) {
+    const fromSpot = routeSpots[i];
+    const toSpot = routeSpots[i + 1];
+    const cacheKey = getRouteLegCacheKey(fromSpot, toSpot);
+    if (!routeLegMetricsCache.has(cacheKey) && !routeLegMetricsInFlight.has(cacheKey)) {
+      missingPairs.push({ fromSpot, toSpot, cacheKey });
+    }
+  }
+
+  if (!missingPairs.length) {
+    routeMetricsLoading = false;
+    return;
+  }
+
+  routeMetricsLoading = true;
+  const currentRequestSeq = ++routeMetricsRequestSeq;
+  renderRouteDataHint();
+
+  const fetchTasks = missingPairs.map(async ({ fromSpot, toSpot, cacheKey }) => {
+    routeLegMetricsInFlight.add(cacheKey);
+    try {
+      const metrics = await fetchRouteLegMetrics(fromSpot, toSpot);
+      routeLegMetricsCache.set(cacheKey, metrics);
+    } catch (error) {
+      const fallbackDistance = haversine(fromSpot, toSpot);
+      routeLegMetricsCache.set(cacheKey, {
+        distanceKm: fallbackDistance,
+        travelMinutes: getTravelMinutes(fallbackDistance),
+        transitMode: getTransitMode(fallbackDistance),
+        source: "estimated"
+      });
+      routeMetricsStatusNote = "部分路段获取真实路网失败，已回退为估算。";
+    } finally {
+      routeLegMetricsInFlight.delete(cacheKey);
+    }
+  });
+
+  Promise.allSettled(fetchTasks).then(() => {
+    if (currentRequestSeq !== routeMetricsRequestSeq) {
+      return;
+    }
+
+    routeMetricsLoading = false;
+    updateView();
+  });
+}
+
+async function fetchRouteLegMetrics(fromSpot, toSpot) {
+  const straightDistanceKm = haversine(fromSpot, toSpot);
+  const profile = chooseRouteProfile(straightDistanceKm);
+  const fromLng = getSpotMapLng(fromSpot);
+  const fromLat = getSpotMapLat(fromSpot);
+  const toLng = getSpotMapLng(toSpot);
+  const toLat = getSpotMapLat(toSpot);
+
+  const routeUrl = `${REAL_ROUTE_ENGINE_URL}/route/v1/${profile}/${fromLng},${fromLat};${toLng},${toLat}?overview=false&alternatives=false&steps=false&continue_straight=true`;
+  const data = await fetchJsonWithTimeout(routeUrl, ROUTE_FETCH_TIMEOUT_MS);
+
+  if (!data || data.code !== "Ok" || !Array.isArray(data.routes) || !data.routes.length) {
+    throw new Error("Route engine returned invalid payload.");
+  }
+
+  const firstRoute = data.routes[0];
+  const distanceKm = (firstRoute.distance || 0) / 1000;
+  const travelMinutes = Math.max(3, Math.round((firstRoute.duration || 0) / 60));
+
+  return {
+    distanceKm,
+    travelMinutes,
+    transitMode: getTransitModeByProfile(profile, distanceKm),
+    source: "real"
+  };
+}
+
+function chooseRouteProfile(straightDistanceKm) {
+  if (straightDistanceKm <= 2.5) {
+    return "walking";
+  }
+
+  if (straightDistanceKm <= 8) {
+    return "cycling";
+  }
+
+  return "driving";
+}
+
+function getTransitModeByProfile(profile, distanceKm) {
+  if (profile === "walking") {
+    return "步行";
+  }
+
+  if (profile === "cycling") {
+    return "骑行";
+  }
+
+  if (distanceKm > 15) {
+    return "驾车/网约车";
+  }
+
+  return "驾车";
+}
+
+async function fetchJsonWithTimeout(url, timeoutMs) {
+  const abortController = new AbortController();
+  const timer = setTimeout(() => {
+    abortController.abort();
+  }, timeoutMs);
+
+  try {
+    const response = await fetch(url, {
+      signal: abortController.signal
+    });
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}`);
+    }
+    return await response.json();
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 function getRoutePlanInfo(route) {
   const routeSpots = route.spotIds.map((id) => scenicById.get(id)).filter(Boolean);
   const steps = [];
@@ -726,6 +1016,9 @@ function getRoutePlanInfo(route) {
       totalVisitMinutes: 0,
       totalTravelMinutes: 0,
       totalMinutes: 0,
+      totalLegCount: 0,
+      realLegCount: 0,
+      estimatedLegCount: 0,
       startMinute: ROUTE_START_MINUTE,
       endMinute: ROUTE_START_MINUTE
     };
@@ -734,6 +1027,8 @@ function getRoutePlanInfo(route) {
   let totalDistanceKm = 0;
   let totalVisitMinutes = 0;
   let totalTravelMinutes = 0;
+  let realLegCount = 0;
+  let estimatedLegCount = 0;
   let currentMinute = ROUTE_START_MINUTE;
 
   for (let i = 0; i < routeSpots.length; i += 1) {
@@ -746,18 +1041,24 @@ function getRoutePlanInfo(route) {
     let nextTransfer = null;
     if (i < routeSpots.length - 1) {
       const nextSpot = routeSpots[i + 1];
-      const distanceKm = haversine(spot, nextSpot);
-      const travelMinutes = getTravelMinutes(distanceKm);
+      const legMetrics = getRouteLegMetrics(spot, nextSpot);
 
-      totalDistanceKm += distanceKm;
-      totalTravelMinutes += travelMinutes;
-      currentMinute = leaveMinute + travelMinutes;
+      totalDistanceKm += legMetrics.distanceKm;
+      totalTravelMinutes += legMetrics.travelMinutes;
+      currentMinute = leaveMinute + legMetrics.travelMinutes;
+
+      if (legMetrics.source === "real") {
+        realLegCount += 1;
+      } else {
+        estimatedLegCount += 1;
+      }
 
       nextTransfer = {
         nextSpotName: nextSpot.name,
-        distanceKm,
-        travelMinutes,
-        transitMode: getTransitMode(distanceKm)
+        distanceKm: legMetrics.distanceKm,
+        travelMinutes: legMetrics.travelMinutes,
+        transitMode: legMetrics.transitMode,
+        source: legMetrics.source
       };
     } else {
       currentMinute = leaveMinute;
@@ -780,6 +1081,9 @@ function getRoutePlanInfo(route) {
     totalVisitMinutes,
     totalTravelMinutes,
     totalMinutes,
+    totalLegCount: Math.max(routeSpots.length - 1, 0),
+    realLegCount,
+    estimatedLegCount,
     startMinute: ROUTE_START_MINUTE,
     endMinute: ROUTE_START_MINUTE + totalMinutes
   };
@@ -997,7 +1301,7 @@ function fitMapToSpots(spots) {
   }
 
   if (spots.length === 1) {
-    setMapView(spots[0].lat, spots[0].lng, 13, true);
+    setMapView(getSpotMapLat(spots[0]), getSpotMapLng(spots[0]), 13, true);
     return;
   }
 
@@ -1133,8 +1437,8 @@ function initScene3D() {
       scene3d.updateSpotCamera = async (spot) => {
         const requestId = ++scene3dRequestSeq;
         const sceneConfig = getSpotSceneConfig(spot);
-        const mapLng = getSpotMapLng(spot);
-        const mapLat = getSpotMapLat(spot);
+        const mapLng = getSpotSceneAnchorLng(spot);
+        const mapLat = getSpotSceneAnchorLat(spot);
         const markerGraphic = new Graphic({
           geometry: {
             type: "point",
@@ -1343,6 +1647,229 @@ async function shareCurrentView() {
   }
 }
 
+async function openPosterModal() {
+  const shareUrl = buildShareUrl();
+  if (!shareUrl) {
+    setShareHint("当前是本地文件模式（file://），请先用 http(s) 打开后再转发。");
+    return;
+  }
+
+  refs.posterModal.hidden = false;
+  document.body.style.overflow = "hidden";
+  setPosterHint("海报生成中...");
+
+  try {
+    await renderPosterCanvas(shareUrl);
+    setPosterHint("海报已生成，可下载或截图分享给微信好友。");
+  } catch (error) {
+    setPosterHint("海报生成失败，请稍后重试。");
+  }
+}
+
+function closePosterModal() {
+  refs.posterModal.hidden = true;
+  document.body.style.overflow = "";
+}
+
+function setPosterHint(message) {
+  refs.posterHint.textContent = message;
+}
+
+function downloadPosterImage() {
+  const canvas = refs.posterCanvas;
+  if (!canvas) {
+    return;
+  }
+
+  const link = document.createElement("a");
+  link.href = canvas.toDataURL("image/png");
+  link.download = `shanghai-red-landmarks-${Date.now()}.png`;
+  link.click();
+  setPosterHint("海报已下载。");
+}
+
+async function renderPosterCanvas(shareUrl) {
+  const canvas = refs.posterCanvas;
+  const ctx = canvas.getContext("2d");
+  if (!ctx) {
+    throw new Error("Canvas context unavailable.");
+  }
+
+  const width = canvas.width;
+  const height = canvas.height;
+  const activeRoute = getActiveRoute();
+  const selectedSpot = state.selectedSpotId ? scenicById.get(state.selectedSpotId) : null;
+  const filteredSpots = getFilteredSpots();
+  const routeInfo = activeRoute ? getRoutePlanInfo(activeRoute) : null;
+  const nowLabel = new Date().toLocaleString("zh-CN", { hour12: false });
+
+  const bgGradient = ctx.createLinearGradient(0, 0, width, height);
+  bgGradient.addColorStop(0, "#f8f0e3");
+  bgGradient.addColorStop(0.45, "#f2e2ca");
+  bgGradient.addColorStop(1, "#e5c9a6");
+  ctx.fillStyle = bgGradient;
+  ctx.fillRect(0, 0, width, height);
+
+  const glowGradient = ctx.createRadialGradient(width * 0.82, height * 0.12, 10, width * 0.82, height * 0.12, 320);
+  glowGradient.addColorStop(0, "rgba(197, 58, 37, 0.35)");
+  glowGradient.addColorStop(1, "rgba(197, 58, 37, 0)");
+  ctx.fillStyle = glowGradient;
+  ctx.fillRect(0, 0, width, height);
+
+  ctx.fillStyle = "#8f1a11";
+  ctx.font = "700 58px 'Noto Serif SC', serif";
+  ctx.fillText("上海红色景点地图", 66, 122);
+  ctx.fillStyle = "#5b2f25";
+  ctx.font = "500 28px 'Noto Serif SC', serif";
+  ctx.fillText("Red Landmarks · Share Poster", 66, 168);
+
+  ctx.fillStyle = "rgba(255, 248, 239, 0.92)";
+  roundRect(ctx, 52, 216, width - 104, 598, 24);
+  ctx.fill();
+
+  ctx.fillStyle = "#5d3028";
+  ctx.font = "700 30px 'Noto Serif SC', serif";
+  ctx.fillText("当前视图摘要", 86, 282);
+  ctx.font = "500 24px 'Noto Serif SC', serif";
+  drawWrappedText(
+    ctx,
+    `路线：${activeRoute ? activeRoute.title : "未选择路线"}`,
+    86,
+    334,
+    width - 170,
+    36,
+    2
+  );
+  drawWrappedText(
+    ctx,
+    `景点：${selectedSpot ? selectedSpot.name : "未锁定景点"}  ·  当前筛选结果 ${filteredSpots.length} 个`,
+    86,
+    396,
+    width - 170,
+    36,
+    2
+  );
+  drawWrappedText(
+    ctx,
+    `路线用时：${routeInfo ? formatDuration(routeInfo.totalMinutes) : "未计算"}  ·  数据来源：${routeInfo ? getPlanSourceLabel(routeInfo) : "未选择路线"}`,
+    86,
+    458,
+    width - 170,
+    36,
+    2
+  );
+  drawWrappedText(ctx, `更新时间：${nowLabel}`, 86, 520, width - 170, 36, 1);
+  drawWrappedText(
+    ctx,
+    "打开链接可继续查看地图、路线和 3D 视角。建议在微信中发送海报和链接一起给朋友。",
+    86,
+    584,
+    width - 170,
+    36,
+    3
+  );
+
+  ctx.fillStyle = "rgba(255, 248, 239, 0.94)";
+  roundRect(ctx, 52, 848, width - 104, 700, 24);
+  ctx.fill();
+
+  const qrDataUrl = await generateQrCodeDataUrl(shareUrl);
+  const qrSize = 300;
+  const qrX = 88;
+  const qrY = 928;
+
+  if (qrDataUrl) {
+    const qrImage = await loadImage(qrDataUrl);
+    ctx.drawImage(qrImage, qrX, qrY, qrSize, qrSize);
+  } else {
+    ctx.fillStyle = "#f1dfca";
+    roundRect(ctx, qrX, qrY, qrSize, qrSize, 20);
+    ctx.fill();
+    ctx.fillStyle = "#884338";
+    ctx.font = "500 22px 'Noto Serif SC', serif";
+    ctx.fillText("二维码不可用", qrX + 78, qrY + 164);
+  }
+
+  ctx.fillStyle = "#5d3028";
+  ctx.font = "700 30px 'Noto Serif SC', serif";
+  ctx.fillText("扫码继续查看", 430, 980);
+  ctx.font = "500 24px 'Noto Serif SC', serif";
+  drawWrappedText(
+    ctx,
+    shareUrl,
+    430,
+    1038,
+    width - 484,
+    33,
+    8
+  );
+}
+
+async function generateQrCodeDataUrl(text) {
+  if (!window.QRCode || typeof window.QRCode.toDataURL !== "function") {
+    return "";
+  }
+
+  return await window.QRCode.toDataURL(text, {
+    width: 360,
+    margin: 1,
+    color: {
+      dark: "#7e1b13",
+      light: "#fffaf4"
+    }
+  });
+}
+
+function loadImage(src) {
+  return new Promise((resolve, reject) => {
+    const image = new Image();
+    image.onload = () => resolve(image);
+    image.onerror = () => reject(new Error("Image load failed."));
+    image.src = src;
+  });
+}
+
+function drawWrappedText(ctx, text, x, y, maxWidth, lineHeight, maxLines) {
+  const chars = Array.from(text || "");
+  let current = "";
+  let line = 0;
+
+  for (let i = 0; i < chars.length; i += 1) {
+    const next = `${current}${chars[i]}`;
+    if (ctx.measureText(next).width <= maxWidth) {
+      current = next;
+      continue;
+    }
+
+    ctx.fillText(current, x, y + line * lineHeight);
+    line += 1;
+    current = chars[i];
+
+    if (line >= maxLines) {
+      break;
+    }
+  }
+
+  if (line < maxLines && current) {
+    ctx.fillText(current, x, y + line * lineHeight);
+  }
+}
+
+function roundRect(ctx, x, y, width, height, radius) {
+  const corner = Math.max(0, Math.min(radius, width / 2, height / 2));
+  ctx.beginPath();
+  ctx.moveTo(x + corner, y);
+  ctx.lineTo(x + width - corner, y);
+  ctx.quadraticCurveTo(x + width, y, x + width, y + corner);
+  ctx.lineTo(x + width, y + height - corner);
+  ctx.quadraticCurveTo(x + width, y + height, x + width - corner, y + height);
+  ctx.lineTo(x + corner, y + height);
+  ctx.quadraticCurveTo(x, y + height, x, y + height - corner);
+  ctx.lineTo(x, y + corner);
+  ctx.quadraticCurveTo(x, y, x + corner, y);
+  ctx.closePath();
+}
+
 function buildShareUrl() {
   if (window.location.protocol === "file:") {
     return null;
@@ -1495,8 +2022,20 @@ function getSpotSceneConfig(spot) {
     heading: 36,
     tilt: 72,
     altitude: 900,
+    anchorOffsetLat: 0,
+    anchorOffsetLng: 0,
     ...(spot?.scene || {})
   };
+}
+
+function getSpotSceneAnchorLat(spot) {
+  const config = getSpotSceneConfig(spot);
+  return getSpotMapLat(spot) + config.anchorOffsetLat;
+}
+
+function getSpotSceneAnchorLng(spot) {
+  const config = getSpotSceneConfig(spot);
+  return getSpotMapLng(spot) + config.anchorOffsetLng;
 }
 
 function gcj02ToWgs84(lat, lng) {
