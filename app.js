@@ -1675,8 +1675,12 @@ async function openPosterModal() {
   setPosterHint("海报生成中...");
 
   try {
-    await renderPosterCanvas(shareUrl);
-    setPosterHint("海报已生成，可下载或截图分享给微信好友。");
+    const posterResult = await renderPosterCanvas(shareUrl);
+    if (posterResult?.qrReady === false) {
+      setPosterHint("海报已生成，但二维码加载失败，请使用“复制链接”发送给朋友。");
+    } else {
+      setPosterHint("海报已生成，可下载或截图分享给微信好友。");
+    }
   } catch (error) {
     renderPosterFallback(shareUrl);
     setPosterHint("海报生成失败，请稍后重试。");
@@ -1822,6 +1826,7 @@ async function renderPosterCanvas(shareUrl) {
   if (qrDataUrl) {
     const qrImage = await loadImage(qrDataUrl);
     ctx.drawImage(qrImage, qrX, qrY, qrSize, qrSize);
+    canvas.dataset.qrStatus = "ok";
   } else {
     ctx.fillStyle = "#f1dfca";
     roundRect(ctx, qrX, qrY, qrSize, qrSize, 20);
@@ -1829,6 +1834,7 @@ async function renderPosterCanvas(shareUrl) {
     ctx.fillStyle = "#884338";
     ctx.font = "500 22px 'Noto Serif SC', serif";
     ctx.fillText("二维码不可用", qrX + 78, qrY + 164);
+    canvas.dataset.qrStatus = "fallback";
   }
 
   ctx.fillStyle = "#5d3028";
@@ -1844,21 +1850,36 @@ async function renderPosterCanvas(shareUrl) {
     33,
     8
   );
+
+  return {
+    qrReady: Boolean(qrDataUrl)
+  };
 }
 
 async function generateQrCodeDataUrl(text) {
-  if (!window.QRCode || typeof window.QRCode.toDataURL !== "function") {
-    return "";
+  if (window.QRCode && typeof window.QRCode.toDataURL === "function") {
+    return await window.QRCode.toDataURL(text, {
+      width: 360,
+      margin: 1,
+      color: {
+        dark: "#7e1b13",
+        light: "#fffaf4"
+      }
+    });
   }
 
-  return await window.QRCode.toDataURL(text, {
-    width: 360,
-    margin: 1,
-    color: {
-      dark: "#7e1b13",
-      light: "#fffaf4"
+  if (typeof window.qrcode === "function") {
+    try {
+      const qr = window.qrcode(0, "M");
+      qr.addData(text);
+      qr.make();
+      return qr.createDataURL(8, 1);
+    } catch (error) {
+      return "";
     }
-  });
+  }
+
+  return "";
 }
 
 function loadImage(src) {
