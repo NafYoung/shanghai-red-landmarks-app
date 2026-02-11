@@ -347,50 +347,60 @@ function bindEvents() {
     await shareCurrentView();
   });
 
-  refs.makePoster.addEventListener("click", async () => {
-    await openPosterModal();
-  });
+  if (refs.makePoster) {
+    refs.makePoster.addEventListener("click", async () => {
+      await openPosterModal();
+    });
+  }
 
   refs.clearRoute.addEventListener("click", () => {
     state.activeRouteId = null;
     updateView();
   });
 
-  refs.closePoster.addEventListener("click", () => {
-    closePosterModal();
-  });
-
-  refs.posterModal.addEventListener("click", (event) => {
-    if (event.target === refs.posterModal) {
+  if (refs.closePoster) {
+    refs.closePoster.addEventListener("click", () => {
       closePosterModal();
-    }
-  });
+    });
+  }
 
-  refs.downloadPoster.addEventListener("click", () => {
-    downloadPosterImage();
-  });
-
-  refs.copyPosterLink.addEventListener("click", async () => {
-    const shareUrl = buildShareUrl();
-    if (!shareUrl) {
-      setPosterHint("当前是本地文件模式，无法生成可转发链接。");
-      return;
-    }
-
-    try {
-      await navigator.clipboard.writeText(shareUrl);
-      setPosterHint("链接已复制，可直接发给朋友。");
-    } catch (error) {
-      if (fallbackCopyText(shareUrl)) {
-        setPosterHint("链接已复制，可直接发给朋友。");
-      } else {
-        setPosterHint("复制失败，请手动复制地址栏链接。");
+  if (refs.posterModal) {
+    refs.posterModal.addEventListener("click", (event) => {
+      if (event.target === refs.posterModal) {
+        closePosterModal();
       }
-    }
-  });
+    });
+  }
+
+  if (refs.downloadPoster) {
+    refs.downloadPoster.addEventListener("click", () => {
+      downloadPosterImage();
+    });
+  }
+
+  if (refs.copyPosterLink) {
+    refs.copyPosterLink.addEventListener("click", async () => {
+      const shareUrl = buildShareUrl();
+      if (!shareUrl) {
+        setPosterHint("当前是本地文件模式，无法生成可转发链接。");
+        return;
+      }
+
+      try {
+        await navigator.clipboard.writeText(shareUrl);
+        setPosterHint("链接已复制，可直接发给朋友。");
+      } catch (error) {
+        if (fallbackCopyText(shareUrl)) {
+          setPosterHint("链接已复制，可直接发给朋友。");
+        } else {
+          setPosterHint("复制失败，请手动复制地址栏链接。");
+        }
+      }
+    });
+  }
 
   document.addEventListener("keydown", (event) => {
-    if (event.key === "Escape" && !refs.posterModal.hidden) {
+    if (event.key === "Escape" && refs.posterModal && !refs.posterModal.hidden) {
       closePosterModal();
     }
   });
@@ -1648,12 +1658,18 @@ async function shareCurrentView() {
 }
 
 async function openPosterModal() {
+  if (!refs.posterModal || !refs.posterCanvas) {
+    setShareHint("海报功能初始化失败，请刷新后重试。");
+    return;
+  }
+
   const shareUrl = buildShareUrl();
   if (!shareUrl) {
     setShareHint("当前是本地文件模式（file://），请先用 http(s) 打开后再转发。");
     return;
   }
 
+  refs.posterModal.style.display = "grid";
   refs.posterModal.hidden = false;
   document.body.style.overflow = "hidden";
   setPosterHint("海报生成中...");
@@ -1662,11 +1678,17 @@ async function openPosterModal() {
     await renderPosterCanvas(shareUrl);
     setPosterHint("海报已生成，可下载或截图分享给微信好友。");
   } catch (error) {
+    renderPosterFallback(shareUrl);
     setPosterHint("海报生成失败，请稍后重试。");
   }
 }
 
 function closePosterModal() {
+  if (!refs.posterModal) {
+    return;
+  }
+
+  refs.posterModal.style.display = "none";
   refs.posterModal.hidden = true;
   document.body.style.overflow = "";
 }
@@ -1686,6 +1708,25 @@ function downloadPosterImage() {
   link.download = `shanghai-red-landmarks-${Date.now()}.png`;
   link.click();
   setPosterHint("海报已下载。");
+}
+
+function renderPosterFallback(shareUrl) {
+  const canvas = refs.posterCanvas;
+  const ctx = canvas?.getContext("2d");
+  if (!canvas || !ctx) {
+    return;
+  }
+
+  ctx.fillStyle = "#f7efe1";
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  ctx.fillStyle = "#8f1a11";
+  ctx.font = "700 56px 'Noto Serif SC', serif";
+  ctx.fillText("上海红色景点地图", 72, 132);
+  ctx.fillStyle = "#5d3028";
+  ctx.font = "500 28px 'Noto Serif SC', serif";
+  drawWrappedText(ctx, "海报渲染降级模式", 72, 192, canvas.width - 144, 38, 1);
+  drawWrappedText(ctx, "请复制下方链接发送给朋友：", 72, 272, canvas.width - 144, 38, 1);
+  drawWrappedText(ctx, shareUrl, 72, 332, canvas.width - 144, 34, 10);
 }
 
 async function renderPosterCanvas(shareUrl) {
