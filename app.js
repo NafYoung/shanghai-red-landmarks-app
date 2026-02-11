@@ -1,4 +1,4 @@
-const SHANGHAI_CENTER = [31.2304, 121.4737];
+const SHANGHAI_CENTER = [31.23234, 121.46918];
 const SHANGHAI_ZOOM = 11;
 const URL_VERSION = "1";
 const ROUTE_START_MINUTE = 9 * 60 + 30;
@@ -12,7 +12,7 @@ const STOP_TIME_BY_TYPE = {
   展陈场馆: 55
 };
 
-const scenicSpots = [
+const rawScenicSpots = [
   {
     id: "sihang",
     name: "四行仓库抗战纪念馆",
@@ -168,6 +168,35 @@ const scenicSpots = [
     keywords: ["青年团", "团中央旧址"]
   }
 ];
+
+const SCENE_PRESETS_BY_ID = {
+  sihang: { heading: 102, tilt: 74, altitude: 620 },
+  site1: { heading: 42, tilt: 73, altitude: 520 },
+  site2: { heading: 26, tilt: 72, altitude: 560 },
+  site4: { heading: 38, tilt: 71, altitude: 640 },
+  longhua: { heading: 148, tilt: 69, altitude: 760 },
+  songhu: { heading: 126, tilt: 68, altitude: 940 },
+  anthem: { heading: 66, tilt: 72, altitude: 650 },
+  luxun: { heading: 54, tilt: 71, altitude: 640 },
+  soong: { heading: 34, tilt: 72, altitude: 620 },
+  cy: { heading: 118, tilt: 68, altitude: 980 },
+  youth: { heading: 44, tilt: 73, altitude: 560 }
+};
+
+const scenicSpots = rawScenicSpots.map((spot) => {
+  const corrected = gcj02ToWgs84(spot.lat, spot.lng);
+  return {
+    ...spot,
+    mapLat: corrected.lat,
+    mapLng: corrected.lng,
+    scene: {
+      heading: 36,
+      tilt: 72,
+      altitude: 900,
+      ...(SCENE_PRESETS_BY_ID[spot.id] || {})
+    }
+  };
+});
 
 const recommendedRoutes = [
   {
@@ -432,7 +461,7 @@ function renderMap(spots) {
 
   const markerIcon = createMarkerIcon();
   spots.forEach((spot) => {
-    const marker = window.L.marker([spot.lat, spot.lng], { icon: markerIcon });
+    const marker = window.L.marker([getSpotMapLat(spot), getSpotMapLng(spot)], { icon: markerIcon });
     marker.bindPopup(getSpotPopupHtml(spot), {
       className: "spot-popup",
       maxWidth: 320
@@ -477,7 +506,7 @@ function drawActiveRoute(filteredSpots) {
   }
 
   routeLayer = window.L.polyline(
-    routeSpots.map((spot) => [spot.lat, spot.lng]),
+    routeSpots.map((spot) => [getSpotMapLat(spot), getSpotMapLng(spot)]),
     {
       color: "#b61f15",
       weight: 4,
@@ -660,7 +689,7 @@ function focusSpot(spotId, flyToSpot) {
   }
 
   if (flyToSpot) {
-    setMapView(spot.lat, spot.lng, 13, true);
+    setMapView(getSpotMapLat(spot), getSpotMapLng(spot), 13, true);
   }
 
   marker.openPopup();
@@ -969,7 +998,9 @@ function fitMapToSpots(spots) {
     return;
   }
 
-  const bounds = window.L.latLngBounds(spots.map((spot) => [spot.lat, spot.lng]));
+  const bounds = window.L.latLngBounds(
+    spots.map((spot) => [getSpotMapLat(spot), getSpotMapLng(spot)])
+  );
   map.fitBounds(bounds, {
     padding: [36, 36],
     maxZoom: 14,
@@ -1058,7 +1089,7 @@ function initScene3D() {
       scene3d.when(
         () => {
           scene3dReady = true;
-          refs.scene3dHint.textContent = "拖拽可旋转 3D 场景，滚轮可缩放。";
+          refs.scene3dHint.textContent = "已启用坐标纠偏，拖拽可旋转 3D 场景，滚轮可缩放。";
 
           if (pending3dSpotId) {
             const spotId = pending3dSpotId;
@@ -1088,11 +1119,14 @@ function initScene3D() {
       });
 
       scene3d.updateSpotCamera = (spot) => {
+        const sceneConfig = getSpotSceneConfig(spot);
+        const mapLng = getSpotMapLng(spot);
+        const mapLat = getSpotMapLat(spot);
         const markerGraphic = new Graphic({
           geometry: {
             type: "point",
-            longitude: spot.lng,
-            latitude: spot.lat,
+            longitude: mapLng,
+            latitude: mapLat,
             z: 30
           },
           symbol: {
@@ -1132,12 +1166,12 @@ function initScene3D() {
           .goTo(
             {
               position: {
-                longitude: spot.lng,
-                latitude: spot.lat,
-                z: 1100
+                longitude: mapLng,
+                latitude: mapLat,
+                z: sceneConfig.altitude
               },
-              heading: 36,
-              tilt: 72
+              heading: sceneConfig.heading,
+              tilt: sceneConfig.tilt
             },
             {
               duration: 1400,
@@ -1166,7 +1200,7 @@ function updateSpot3DById(spotId) {
     return;
   }
 
-  refs.scene3dHint.textContent = "拖拽可旋转 3D 场景，滚轮可缩放。";
+  refs.scene3dHint.textContent = "已启用坐标纠偏，拖拽可旋转 3D 场景，滚轮可缩放。";
   scene3d.updateSpotCamera(spot);
 }
 
@@ -1196,7 +1230,7 @@ function resetScene3D() {
       .catch(() => {});
   }
 
-  refs.scene3dHint.textContent = "拖拽可旋转 3D 场景，滚轮可缩放。";
+  refs.scene3dHint.textContent = "已启用坐标纠偏，拖拽可旋转 3D 场景，滚轮可缩放。";
 }
 
 async function shareCurrentView() {
@@ -1374,15 +1408,102 @@ function showShareProtocolHint() {
   }
 }
 
+function getSpotMapLat(spot) {
+  if (Number.isFinite(spot?.mapLat)) {
+    return spot.mapLat;
+  }
+  return spot?.lat ?? SHANGHAI_CENTER[0];
+}
+
+function getSpotMapLng(spot) {
+  if (Number.isFinite(spot?.mapLng)) {
+    return spot.mapLng;
+  }
+  return spot?.lng ?? SHANGHAI_CENTER[1];
+}
+
+function getSpotSceneConfig(spot) {
+  return {
+    heading: 36,
+    tilt: 72,
+    altitude: 900,
+    ...(spot?.scene || {})
+  };
+}
+
+function gcj02ToWgs84(lat, lng) {
+  if (!isInChina(lng, lat)) {
+    return { lat, lng };
+  }
+
+  const a = 6378245.0;
+  const ee = 0.00669342162296594323;
+
+  const dLat = transformLatitude(lng - 105.0, lat - 35.0);
+  const dLng = transformLongitude(lng - 105.0, lat - 35.0);
+  const radLat = (lat / 180.0) * Math.PI;
+  const sinLat = Math.sin(radLat);
+  const magic = 1 - ee * sinLat * sinLat;
+  const sqrtMagic = Math.sqrt(magic);
+
+  const mgLat = lat + (dLat * 180.0) / (((a * (1 - ee)) / (magic * sqrtMagic)) * Math.PI);
+  const mgLng = lng + (dLng * 180.0) / ((a / sqrtMagic) * Math.cos(radLat) * Math.PI);
+
+  return {
+    lat: lat * 2 - mgLat,
+    lng: lng * 2 - mgLng
+  };
+}
+
+function isInChina(lng, lat) {
+  if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
+    return false;
+  }
+  return lng >= 72.004 && lng <= 137.8347 && lat >= 0.8293 && lat <= 55.8271;
+}
+
+function transformLatitude(x, y) {
+  let result =
+    -100.0 +
+    2.0 * x +
+    3.0 * y +
+    0.2 * y * y +
+    0.1 * x * y +
+    0.2 * Math.sqrt(Math.abs(x));
+  result += ((20.0 * Math.sin(6.0 * x * Math.PI) + 20.0 * Math.sin(2.0 * x * Math.PI)) * 2.0) / 3.0;
+  result += ((20.0 * Math.sin(y * Math.PI) + 40.0 * Math.sin((y / 3.0) * Math.PI)) * 2.0) / 3.0;
+  result += ((160.0 * Math.sin((y / 12.0) * Math.PI) + 320.0 * Math.sin((y * Math.PI) / 30.0)) * 2.0) / 3.0;
+  return result;
+}
+
+function transformLongitude(x, y) {
+  let result =
+    300.0 +
+    x +
+    2.0 * y +
+    0.1 * x * x +
+    0.1 * x * y +
+    0.1 * Math.sqrt(Math.abs(x));
+  result += ((20.0 * Math.sin(6.0 * x * Math.PI) + 20.0 * Math.sin(2.0 * x * Math.PI)) * 2.0) / 3.0;
+  result += ((20.0 * Math.sin(x * Math.PI) + 40.0 * Math.sin((x / 3.0) * Math.PI)) * 2.0) / 3.0;
+  result += ((150.0 * Math.sin((x / 12.0) * Math.PI) + 300.0 * Math.sin((x / 30.0) * Math.PI)) * 2.0) / 3.0;
+  return result;
+}
+
 function haversine(a, b) {
   const toRad = (deg) => (deg * Math.PI) / 180;
   const earthRadiusKm = 6371;
 
-  const dLat = toRad(b.lat - a.lat);
-  const dLng = toRad(b.lng - a.lng);
+  const latA = getSpotMapLat(a);
+  const lngA = getSpotMapLng(a);
+  const latB = getSpotMapLat(b);
+  const lngB = getSpotMapLng(b);
 
-  const lat1 = toRad(a.lat);
-  const lat2 = toRad(b.lat);
+  const dLat = toRad(latB - latA);
+  const dLng = toRad(lngB - lngA);
+
+  const lat1 = toRad(latA);
+  const lat2 = toRad(latB);
 
   const value =
     Math.sin(dLat / 2) * Math.sin(dLat / 2) +
