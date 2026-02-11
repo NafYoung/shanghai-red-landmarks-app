@@ -1,0 +1,136 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>上海红色景点可视化</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Noto+Serif+SC:wght@400;500;700&family=Outfit:wght@400;600&display=swap"
+      rel="stylesheet"
+    />
+    <link
+      rel="stylesheet"
+      href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+      integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY="
+      crossorigin=""
+    />
+    <link rel="stylesheet" href="https://js.arcgis.com/4.29/esri/themes/light/main.css" />
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <div class="glow glow-left" aria-hidden="true"></div>
+    <div class="glow glow-right" aria-hidden="true"></div>
+
+    <main class="app-shell">
+      <header class="hero">
+        <p class="eyebrow">Shanghai Red Landmark Explorer</p>
+        <h1>上海红色景点可视化</h1>
+        <p class="hero-text">
+          以地图方式查看上海红色地标，支持按区域、类型筛选与路线浏览，快速规划参观路径。
+        </p>
+      </header>
+
+      <section class="control-panel" aria-label="筛选控制">
+        <label class="control-item">
+          <span>关键词</span>
+          <input id="searchInput" type="search" placeholder="输入景点名称或简介关键词" />
+        </label>
+
+        <label class="control-item">
+          <span>行政区</span>
+          <select id="districtSelect">
+            <option value="all">全部区域</option>
+          </select>
+        </label>
+
+        <label class="control-item">
+          <span>景点类型</span>
+          <select id="typeSelect">
+            <option value="all">全部类型</option>
+          </select>
+        </label>
+
+        <div class="button-row">
+          <button id="resetFilters" class="button ghost" type="button">重置筛选</button>
+          <button id="focusShanghai" class="button" type="button">回到上海中心</button>
+          <button id="shareApp" class="button" type="button">转发给朋友</button>
+        </div>
+        <p id="shareHint" class="share-hint" aria-live="polite">可分享当前筛选与路线状态</p>
+      </section>
+
+      <section class="stats-grid" aria-label="数据概览">
+        <article class="stat-card">
+          <p>当前景点数</p>
+          <h2 id="totalCount">0</h2>
+        </article>
+        <article class="stat-card">
+          <p>覆盖行政区</p>
+          <h2 id="districtCount">0</h2>
+        </article>
+        <article class="stat-card">
+          <p>最早相关年份</p>
+          <h2 id="earliestYear">-</h2>
+        </article>
+        <article class="stat-card">
+          <p>当前路线里程</p>
+          <h2 id="routeDistance">-</h2>
+        </article>
+      </section>
+
+      <section class="main-grid" aria-label="地图与景点列表">
+        <aside class="panel scenic-panel">
+          <div class="panel-head">
+            <h3>景点清单</h3>
+            <p id="resultHint">共 0 个结果</p>
+          </div>
+          <div id="scenicList" class="scenic-list" role="list"></div>
+        </aside>
+
+        <section class="map-column">
+          <section class="panel map-panel" aria-label="景点地图">
+            <div id="map"></div>
+            <div id="mapSpotInfo" class="map-spot-info">点击地图标点可查看该地点的地址和介绍。</div>
+          </section>
+
+          <section class="panel scene-panel" aria-label="景点三维视图">
+            <div class="panel-head">
+              <h3 id="scene3dTitle">景点 3D 图</h3>
+              <p id="scene3dMeta">点击左侧景点后显示该地点 3D 视角</p>
+            </div>
+            <div id="scene3d"></div>
+            <p id="scene3dHint" class="scene3d-hint">3D 引擎加载中...</p>
+          </section>
+        </section>
+      </section>
+
+      <section class="extra-grid" aria-label="路线与时间线">
+        <article class="panel">
+          <div class="panel-head route-head">
+            <h3>推荐路线</h3>
+            <button id="clearRoute" class="button ghost" type="button">清除路线</button>
+          </div>
+          <div id="routeCards" class="route-cards"></div>
+          <div id="routePlan" class="route-plan"></div>
+        </article>
+
+        <article class="panel">
+          <div class="panel-head">
+            <h3>历史时间线</h3>
+            <p>按景点关联年份排序</p>
+          </div>
+          <div id="timeline" class="timeline"></div>
+        </article>
+      </section>
+    </main>
+
+    <script
+      src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
+      integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo="
+      crossorigin=""
+    ></script>
+    <script src="https://js.arcgis.com/4.29/"></script>
+    <script src="./app.js"></script>
+  </body>
+</html>
