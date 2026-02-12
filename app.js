@@ -21,8 +21,8 @@ const rawScenicSpots = [
     district: "静安区",
     type: "抗战遗址",
     year: 1937,
-    lat: 31.2474,
-    lng: 121.4626,
+    lat: 31.24207778,
+    lng: 121.46694444,
     address: "静安区光复路21号",
     brief: "展示淞沪会战四行仓库保卫战历史。",
     intro:
@@ -35,8 +35,8 @@ const rawScenicSpots = [
     district: "黄浦区",
     type: "中共会址",
     year: 1921,
-    lat: 31.2199,
-    lng: 121.4753,
+    lat: 31.2221,
+    lng: 121.4707,
     address: "黄浦区兴业路76号（会址）；黄浦区黄陂南路374号（纪念馆）",
     brief: "中国共产党第一次全国代表大会会址。",
     intro:
@@ -49,8 +49,8 @@ const rawScenicSpots = [
     district: "静安区",
     type: "中共会址",
     year: 1922,
-    lat: 31.2292,
-    lng: 121.4635,
+    lat: 31.2261,
+    lng: 121.4622,
     address: "静安区老成都北路7弄30号",
     brief: "首部党章诞生地，见证早期党组织建设。",
     intro:
@@ -63,8 +63,8 @@ const rawScenicSpots = [
     district: "虹口区",
     type: "中共会址",
     year: 1925,
-    lat: 31.2719,
-    lng: 121.4878,
+    lat: 31.2571553,
+    lng: 121.4804129,
     address: "虹口区四川北路1468号（四川北路公园内）",
     brief: "展示中共四大历史贡献与统一战线思想。",
     intro:
@@ -77,8 +77,8 @@ const rawScenicSpots = [
     district: "徐汇区",
     type: "烈士纪念",
     year: 1949,
-    lat: 31.173,
-    lng: 121.4475,
+    lat: 31.1776591,
+    lng: 121.4442664,
     address: "徐汇区龙华西路180号",
     brief: "上海重要烈士纪念场所，含纪念馆与纪念碑。",
     intro:
@@ -91,8 +91,8 @@ const rawScenicSpots = [
     district: "宝山区",
     type: "抗战遗址",
     year: 1937,
-    lat: 31.4064,
-    lng: 121.4899,
+    lat: 31.4117365,
+    lng: 121.4904388,
     address: "宝山区友谊路1号（临江公园内）",
     brief: "系统呈现淞沪抗战史实与城市抗战记忆。",
     intro:
@@ -105,8 +105,8 @@ const rawScenicSpots = [
     district: "杨浦区",
     type: "展陈场馆",
     year: 1935,
-    lat: 31.2644,
-    lng: 121.527,
+    lat: 31.26026,
+    lng: 121.50973,
     address: "杨浦区荆州路151号",
     brief: "围绕《义勇军进行曲》创作与传播历史展陈。",
     intro:
@@ -119,8 +119,8 @@ const rawScenicSpots = [
     district: "虹口区",
     type: "人物纪念",
     year: 1936,
-    lat: 31.2866,
-    lng: 121.4852,
+    lat: 31.2716807,
+    lng: 121.4793996,
     address: "虹口区甜爱路200号",
     brief: "展示鲁迅生平与革命文化精神。",
     intro:
@@ -133,8 +133,8 @@ const rawScenicSpots = [
     district: "徐汇区",
     type: "人物纪念",
     year: 1949,
-    lat: 31.2106,
-    lng: 121.4335,
+    lat: 31.2057687,
+    lng: 121.4344177,
     address: "徐汇区淮海中路1843号",
     brief: "呈现宋庆龄在上海工作与生活历史。",
     intro:
@@ -147,8 +147,8 @@ const rawScenicSpots = [
     district: "青浦区",
     type: "人物纪念",
     year: 1905,
-    lat: 31.1638,
-    lng: 121.0605,
+    lat: 31.0089868,
+    lng: 121.0392608,
     address: "青浦区练塘镇朱枫公路3516号",
     brief: "展示陈云同志生平与党史贡献。",
     intro:
@@ -161,8 +161,8 @@ const rawScenicSpots = [
     district: "黄浦区",
     type: "中共会址",
     year: 1920,
-    lat: 31.2214,
-    lng: 121.4807,
+    lat: 31.22194389,
+    lng: 121.46361111,
     address: "黄浦区淮海中路567弄1-6号（2号门）",
     brief: "中国社会主义青年团中央机关旧址。",
     intro:
@@ -185,22 +185,19 @@ const SCENE_PRESETS_BY_ID = {
   youth: { heading: 44, tilt: 73, altitude: 560, anchorOffsetLat: 0.00004, anchorOffsetLng: -0.00005 }
 };
 
-const scenicSpots = rawScenicSpots.map((spot) => {
-  const corrected = gcj02ToWgs84(spot.lat, spot.lng);
-  return {
-    ...spot,
-    mapLat: corrected.lat,
-    mapLng: corrected.lng,
-    scene: {
-      heading: 36,
-      tilt: 72,
-      altitude: 900,
-      anchorOffsetLat: 0,
-      anchorOffsetLng: 0,
-      ...(SCENE_PRESETS_BY_ID[spot.id] || {})
-    }
-  };
-});
+const scenicSpots = rawScenicSpots.map((spot) => ({
+  ...spot,
+  mapLat: spot.lat,
+  mapLng: spot.lng,
+  scene: {
+    heading: 36,
+    tilt: 72,
+    altitude: 900,
+    anchorOffsetLat: 0,
+    anchorOffsetLng: 0,
+    ...(SCENE_PRESETS_BY_ID[spot.id] || {})
+  }
+}));
 
 const recommendedRoutes = [
   {
@@ -1148,11 +1145,14 @@ function formatClock(minutesOfDay) {
 }
 
 function getSpotPopupHtml(spot) {
+  const lat = Number.parseFloat(getSpotMapLat(spot)).toFixed(6);
+  const lng = Number.parseFloat(getSpotMapLng(spot)).toFixed(6);
   return `
     <div class="popup-body">
       <h4>${spot.name}</h4>
       <p class="popup-meta">${spot.type} · ${spot.district}</p>
       <p class="popup-address">地址：${spot.address}</p>
+      <p class="popup-address">坐标：${lat}, ${lng}</p>
       <p class="popup-brief">${spot.brief}</p>
       <p class="popup-intro">${spot.intro}</p>
     </div>
@@ -1354,6 +1354,7 @@ function updateMapSpotInfo(spot) {
   refs.mapSpotInfo.innerHTML = `
     <h4>${spot.name}</h4>
     <p><strong>地址：</strong>${spot.address}</p>
+    <p><strong>坐标：</strong>${getSpotMapLat(spot).toFixed(6)}, ${getSpotMapLng(spot).toFixed(6)}</p>
     <p>${spot.intro}</p>
   `;
 }
@@ -1415,7 +1416,7 @@ function initScene3D() {
       scene3d.when(
         () => {
           scene3dReady = true;
-          refs.scene3dHint.textContent = "已启用坐标纠偏，拖拽可旋转 3D 场景，滚轮可缩放。";
+          refs.scene3dHint.textContent = "已按馆址坐标校准，拖拽可旋转 3D 场景，滚轮可缩放。";
 
           if (pending3dSpotId) {
             const spotId = pending3dSpotId;
@@ -1612,7 +1613,7 @@ function resetScene3D() {
       .catch(() => {});
   }
 
-  refs.scene3dHint.textContent = "已启用坐标纠偏，拖拽可旋转 3D 场景，滚轮可缩放。";
+  refs.scene3dHint.textContent = "已按馆址坐标校准，拖拽可旋转 3D 场景，滚轮可缩放。";
 }
 
 async function shareCurrentView() {
@@ -2098,65 +2099,6 @@ function getSpotSceneAnchorLat(spot) {
 function getSpotSceneAnchorLng(spot) {
   const config = getSpotSceneConfig(spot);
   return getSpotMapLng(spot) + config.anchorOffsetLng;
-}
-
-function gcj02ToWgs84(lat, lng) {
-  if (!isInChina(lng, lat)) {
-    return { lat, lng };
-  }
-
-  const a = 6378245.0;
-  const ee = 0.00669342162296594323;
-
-  const dLat = transformLatitude(lng - 105.0, lat - 35.0);
-  const dLng = transformLongitude(lng - 105.0, lat - 35.0);
-  const radLat = (lat / 180.0) * Math.PI;
-  const sinLat = Math.sin(radLat);
-  const magic = 1 - ee * sinLat * sinLat;
-  const sqrtMagic = Math.sqrt(magic);
-
-  const mgLat = lat + (dLat * 180.0) / (((a * (1 - ee)) / (magic * sqrtMagic)) * Math.PI);
-  const mgLng = lng + (dLng * 180.0) / ((a / sqrtMagic) * Math.cos(radLat) * Math.PI);
-
-  return {
-    lat: lat * 2 - mgLat,
-    lng: lng * 2 - mgLng
-  };
-}
-
-function isInChina(lng, lat) {
-  if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
-    return false;
-  }
-  return lng >= 72.004 && lng <= 137.8347 && lat >= 0.8293 && lat <= 55.8271;
-}
-
-function transformLatitude(x, y) {
-  let result =
-    -100.0 +
-    2.0 * x +
-    3.0 * y +
-    0.2 * y * y +
-    0.1 * x * y +
-    0.2 * Math.sqrt(Math.abs(x));
-  result += ((20.0 * Math.sin(6.0 * x * Math.PI) + 20.0 * Math.sin(2.0 * x * Math.PI)) * 2.0) / 3.0;
-  result += ((20.0 * Math.sin(y * Math.PI) + 40.0 * Math.sin((y / 3.0) * Math.PI)) * 2.0) / 3.0;
-  result += ((160.0 * Math.sin((y / 12.0) * Math.PI) + 320.0 * Math.sin((y * Math.PI) / 30.0)) * 2.0) / 3.0;
-  return result;
-}
-
-function transformLongitude(x, y) {
-  let result =
-    300.0 +
-    x +
-    2.0 * y +
-    0.1 * x * x +
-    0.1 * x * y +
-    0.1 * Math.sqrt(Math.abs(x));
-  result += ((20.0 * Math.sin(6.0 * x * Math.PI) + 20.0 * Math.sin(2.0 * x * Math.PI)) * 2.0) / 3.0;
-  result += ((20.0 * Math.sin(x * Math.PI) + 40.0 * Math.sin((x / 3.0) * Math.PI)) * 2.0) / 3.0;
-  result += ((150.0 * Math.sin((x / 12.0) * Math.PI) + 300.0 * Math.sin((x / 30.0) * Math.PI)) * 2.0) / 3.0;
-  return result;
 }
 
 async function queryNearestBuildingModel(buildingsLayer, longitude, latitude) {
