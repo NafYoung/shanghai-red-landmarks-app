@@ -33,10 +33,11 @@
 
 ## 运行方式
 
-1. 进入目录：
+1. 克隆仓库并进入目录：
 
 ```bash
-cd '/Users/nafyoung/Documents/New project/shanghai-red-landmarks-app'
+git clone https://github.com/<你的GitHub用户名>/shanghai-red-landmarks-app.git
+cd shanghai-red-landmarks-app
 ```
 
 2. 启动本地静态服务（推荐）：
@@ -62,13 +63,13 @@ http://localhost:5173
 
 ## GitHub Pages 部署（推荐稳定分享）
 
-项目已内置 GitHub Pages 自动发布工作流：`/Users/nafyoung/Documents/New project/shanghai-red-landmarks-app/.github/workflows/deploy-pages.yml`
+项目已内置 GitHub Pages 自动发布工作流：`.github/workflows/deploy-pages.yml`
 
 1. 在 GitHub 新建一个空仓库（不要勾选初始化 README），例如 `shanghai-red-landmarks-app`。
 2. 在本地执行：
 
 ```bash
-cd '/Users/nafyoung/Documents/New project/shanghai-red-landmarks-app'
+cd shanghai-red-landmarks-app
 ./publish-github-pages.sh https://github.com/<你的GitHub用户名>/<仓库名>.git
 ```
 
