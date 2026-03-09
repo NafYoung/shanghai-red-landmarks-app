@@ -1,0 +1,15 @@
+{
+  "name": "shanghai-red-landmarks-app",
+  "version": "1.0.0",
+  "private": true,
+  "description": "E2E test runner for shanghai-red-landmarks-app",
+  "scripts": {
+    "test:e2e": "playwright test",
+    "test:e2e:ui": "playwright test --ui",
+    "test:e2e:headed": "playwright test --headed",
+    "test:e2e:install": "playwright install chromium"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.58.2"
+  }
+}

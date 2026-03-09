@@ -2,10 +2,63 @@ const SHANGHAI_CENTER = [31.23234, 121.46918];
 const SHANGHAI_ZOOM = 11;
 const URL_VERSION = "1";
 const ROUTE_START_MINUTE = 9 * 60 + 30;
-const URBAN_TRAVEL_SPEED_KMH = 22;
-const TRANSFER_BUFFER_MINUTES = 8;
 const ROUTE_FETCH_TIMEOUT_MS = 5500;
 const REAL_ROUTE_ENGINE_URL = "https://router.project-osrm.org";
+const AMAP_DRIVING_API_URL = "https://restapi.amap.com/v3/direction/driving";
+const BAIDU_PANORAMA_IMAGE_URL = "https://api.map.baidu.com/panorama/v2";
+const SHANGHAI_BOUNDARY_GEOJSON_URL = "./data/shanghai-boundary.simple.geojson";
+const PANORAMA_INDEX_URL = "./data/panoramas.json";
+const SHANGHAI_FALLBACK_BOUNDS = [
+  [30.66, 120.85],
+  [31.9, 122.18]
+];
+const SEARCH_INPUT_DEBOUNCE_MS = 180;
+const TRAVEL_MODEL_STORAGE_KEY = "shanghai-red-landmarks-travel-model-v1";
+const TRAVEL_MODEL_UPDATE_DEBOUNCE_MS = 180;
+const ROUTE_CACHE_STORAGE_KEY = "shanghai-red-landmarks-drive-traffic-v1";
+const ROUTE_CACHE_DRIVE_REALTIME_TTL_MS = 5 * 60 * 1000;
+const ROUTE_CACHE_MODEL_TTL_MS = 24 * 60 * 60 * 1000;
+const ROUTE_CACHE_MAX_ENTRIES = 300;
+const ROUTE_CACHE_PERSIST_DEBOUNCE_MS = 220;
+const PANORAMA_PREF_STORAGE_KEY = "shanghai-red-landmarks-panorama-pref-v1";
+const SCENE_MODE_DEFAULT = "panorama";
+const ROUTE_MODEL_BIKE_SPEED_KMH = 13.5;
+const ROUTE_MODEL_BIKE_BUFFER_MINUTES = 3;
+const ROUTE_MODEL_DRIVE_BASE_MINUTES = 8;
+const ROUTE_MODEL_DRIVE_CONGESTION_FACTOR = 1.18;
+const TRAVEL_MODEL_DEFAULTS = Object.freeze({
+  walkingSpeedKmh: 4.8,
+  walkingTransferBufferMinutes: 2,
+  metroSpeedKmh: 26,
+  metroTransferBufferMinutes: 14,
+  metroWalkSpeedKmh: 23,
+  metroWalkTransferBufferMinutes: 16,
+  taxiSpeedKmh: 30,
+  taxiTransferBufferMinutes: 10,
+  taxiEngineMinFactor: 1.35,
+  taxiEngineExtraMinutes: 4
+});
+const TRAVEL_MODEL_FIELDS = [
+  { key: "walkingSpeedKmh", inputId: "tmWalkingSpeed", min: 3, max: 8, step: 0.1 },
+  { key: "walkingTransferBufferMinutes", inputId: "tmWalkingBuffer", min: 0, max: 30, step: 1 },
+  { key: "metroSpeedKmh", inputId: "tmMetroSpeed", min: 10, max: 45, step: 1 },
+  { key: "metroTransferBufferMinutes", inputId: "tmMetroBuffer", min: 0, max: 40, step: 1 },
+  { key: "metroWalkSpeedKmh", inputId: "tmMetroWalkSpeed", min: 10, max: 40, step: 1 },
+  { key: "metroWalkTransferBufferMinutes", inputId: "tmMetroWalkBuffer", min: 0, max: 45, step: 1 },
+  { key: "taxiSpeedKmh", inputId: "tmTaxiSpeed", min: 12, max: 60, step: 1 },
+  { key: "taxiTransferBufferMinutes", inputId: "tmTaxiBuffer", min: 0, max: 35, step: 1 },
+  { key: "taxiEngineMinFactor", inputId: "tmTaxiFactor", min: 1, max: 3, step: 0.05 },
+  { key: "taxiEngineExtraMinutes", inputId: "tmTaxiExtra", min: 0, max: 20, step: 1 }
+];
+const POSTER_MODAL_FOCUSABLE_SELECTOR =
+  'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])';
+const RUNTIME_CONFIG = window.RUNTIME_CONFIG && typeof window.RUNTIME_CONFIG === "object"
+  ? window.RUNTIME_CONFIG
+  : {};
+const AMAP_WEB_SERVICE_KEY = typeof RUNTIME_CONFIG.amapKey === "string"
+  ? RUNTIME_CONFIG.amapKey.trim()
+  : "";
+const BAIDU_AK = typeof RUNTIME_CONFIG.baiduAk === "string" ? RUNTIME_CONFIG.baiduAk.trim() : "";
 const STOP_TIME_BY_TYPE = {
   中共会址: 70,
   抗战遗址: 80,
@@ -27,7 +80,8 @@ const rawScenicSpots = [
     brief: "展示淞沪会战四行仓库保卫战历史。",
     intro:
       "四行仓库是淞沪会战中著名的保卫战发生地，纪念馆通过实物、影像和场景复原，讲述“八百壮士”坚守阵地的历史，呈现上海城市抗战记忆。",
-    keywords: ["八百壮士", "淞沪会战", "抗战"]
+    keywords: ["八百壮士", "淞沪会战", "抗战"],
+    parking: { available: true, name: "光复路停车场", distance: "步行约2分钟", address: "静安区光复路近西藏北路", note: "" }
   },
   {
     id: "site1",
@@ -41,7 +95,8 @@ const rawScenicSpots = [
     brief: "中国共产党第一次全国代表大会会址。",
     intro:
       "中共一大纪念馆由会址与纪念馆展陈组成。石库门会址见证建党历史，纪念馆系统展示建党背景、一大进程和早期革命活动。",
-    keywords: ["建党", "初心", "石库门"]
+    keywords: ["建党", "初心", "石库门"],
+    parking: { available: true, name: "兴业路停车场", distance: "步行约3分钟", address: "黄浦区兴业路近黄陂南路", note: "节假日车位较紧张" }
   },
   {
     id: "site2",
@@ -55,7 +110,8 @@ const rawScenicSpots = [
     brief: "首部党章诞生地，见证早期党组织建设。",
     intro:
       "中共二大会址重点呈现中国共产党第一部党章的诞生过程。展陈围绕党纲完善、组织建设和工人运动实践，体现早期建党探索。",
-    keywords: ["党章", "早期党史"]
+    keywords: ["党章", "早期党史"],
+    parking: { available: true, name: "老成都北路停车场", distance: "步行约4分钟", address: "静安区老成都北路近延安中路", note: "" }
   },
   {
     id: "site4",
@@ -69,7 +125,8 @@ const rawScenicSpots = [
     brief: "展示中共四大历史贡献与统一战线思想。",
     intro:
       "中共四大纪念馆围绕党的组织路线和群众路线建设，展示会议的历史贡献。常设展强调工农联盟、统一战线和基层组织发展。",
-    keywords: ["统一战线", "党史"]
+    keywords: ["统一战线", "党史"],
+    parking: { available: true, name: "四川北路公园停车场", distance: "步行约2分钟", address: "虹口区四川北路1468号公园内", note: "车位较少，建议公共交通" }
   },
   {
     id: "longhua",
@@ -83,7 +140,8 @@ const rawScenicSpots = [
     brief: "上海重要烈士纪念场所，含纪念馆与纪念碑。",
     intro:
       "龙华烈士陵园集纪念、教育与瞻仰功能于一体，集中纪念在革命和建设时期牺牲的英烈。园区内纪念馆展陈完整，仪式感强。",
-    keywords: ["烈士", "纪念"]
+    keywords: ["烈士", "纪念"],
+    parking: { available: true, name: "龙华烈士陵园停车场", distance: "园区内", address: "徐汇区龙华西路180号院内", note: "免费停车" }
   },
   {
     id: "songhu",
@@ -97,7 +155,8 @@ const rawScenicSpots = [
     brief: "系统呈现淞沪抗战史实与城市抗战记忆。",
     intro:
       "上海淞沪抗战纪念馆以淞沪会战为主线，结合文物、档案和多媒体展项还原战场形势，突出上海在全国抗战中的战略地位。",
-    keywords: ["淞沪抗战", "抗日"]
+    keywords: ["淞沪抗战", "抗日"],
+    parking: { available: true, name: "临江公园停车场", distance: "步行约3分钟", address: "宝山区友谊路1号临江公园旁", note: "" }
   },
   {
     id: "anthem",
@@ -111,7 +170,8 @@ const rawScenicSpots = [
     brief: "围绕《义勇军进行曲》创作与传播历史展陈。",
     intro:
       "国歌展示馆聚焦《义勇军进行曲》的诞生、传播与时代影响，结合声像资料和历史文献，展现国歌背后的民族抗争精神。",
-    keywords: ["义勇军进行曲", "聂耳", "田汉"]
+    keywords: ["义勇军进行曲", "聂耳", "田汉"],
+    parking: { available: true, name: "荆州路停车场", distance: "步行约5分钟", address: "杨浦区荆州路近大连路", note: "路边咪表车位为主" }
   },
   {
     id: "luxun",
@@ -125,7 +185,8 @@ const rawScenicSpots = [
     brief: "展示鲁迅生平与革命文化精神。",
     intro:
       "纪念馆通过手稿、藏书和历史照片，展示鲁迅在上海时期的创作与社会活动。内容强调左翼文化运动与思想启蒙价值。",
-    keywords: ["鲁迅", "左翼文化"]
+    keywords: ["鲁迅", "左翼文化"],
+    parking: { available: true, name: "鲁迅公园停车场", distance: "步行约3分钟", address: "虹口区甜爱路近四川北路", note: "" }
   },
   {
     id: "soong",
@@ -139,7 +200,8 @@ const rawScenicSpots = [
     brief: "呈现宋庆龄在上海工作与生活历史。",
     intro:
       "宋庆龄故居保留了其在沪生活与办公空间，展陈涵盖新中国成立前后重要历史节点，体现其在统一战线和社会事业中的贡献。",
-    keywords: ["宋庆龄", "名人故居"]
+    keywords: ["宋庆龄", "名人故居"],
+    parking: { available: true, name: "淮海中路停车场", distance: "步行约4分钟", address: "徐汇区淮海中路近武康路", note: "收费停车" }
   },
   {
     id: "cy",
@@ -153,7 +215,8 @@ const rawScenicSpots = [
     brief: "展示陈云同志生平与党史贡献。",
     intro:
       "陈云纪念馆位于其故里练塘，展览从革命经历、经济建设到党风建设多维度呈现其思想与实践，是重要党史教育基地。",
-    keywords: ["陈云", "青浦"]
+    keywords: ["陈云", "青浦"],
+    parking: { available: true, name: "陈云纪念馆停车场", distance: "馆区内", address: "青浦区练塘镇朱枫公路3516号院内", note: "免费停车，车位充足" }
   },
   {
     id: "youth",
@@ -167,7 +230,8 @@ const rawScenicSpots = [
     brief: "中国社会主义青年团中央机关旧址。",
     intro:
       "该旧址见证了早期青年运动和社会主义青年团的组织建设。展区围绕青年群体的觉醒、传播与行动，呈现城市革命网络形成过程。",
-    keywords: ["青年团", "团中央旧址"]
+    keywords: ["青年团", "团中央旧址"],
+    parking: { available: true, name: "淮海中路公共停车场", distance: "步行约5分钟", address: "黄浦区淮海中路近思南路", note: "周边商圈停车位较紧张" }
   }
 ];
 
@@ -226,7 +290,8 @@ const state = {
   type: "all",
   selectedSpotId: null,
   activeRouteId: null,
-  active3dSpotId: null
+  active3dSpotId: null,
+  sceneMode: SCENE_MODE_DEFAULT
 };
 
 const refs = {
@@ -250,15 +315,25 @@ const refs = {
   routeCards: document.getElementById("routeCards"),
   routePlan: document.getElementById("routePlan"),
   mapSpotInfo: document.getElementById("mapSpotInfo"),
+  sceneModePanorama: document.getElementById("sceneModePanorama"),
+  sceneMode3d: document.getElementById("sceneMode3d"),
   scene3dTitle: document.getElementById("scene3dTitle"),
   scene3dMeta: document.getElementById("scene3dMeta"),
+  sceneFallbackNotice: document.getElementById("sceneFallbackNotice"),
+  scenePanorama: document.getElementById("scenePanorama"),
+  scenePanoramaImage: document.getElementById("scenePanoramaImage"),
+  scenePanoramaMeta: document.getElementById("scenePanoramaMeta"),
   scene3dHint: document.getElementById("scene3dHint"),
   posterModal: document.getElementById("posterModal"),
   posterCanvas: document.getElementById("posterCanvas"),
   closePoster: document.getElementById("closePoster"),
   downloadPoster: document.getElementById("downloadPoster"),
   copyPosterLink: document.getElementById("copyPosterLink"),
-  posterHint: document.getElementById("posterHint")
+  posterHint: document.getElementById("posterHint"),
+  travelModelPanel: document.getElementById("travelModelPanel"),
+  travelModelHint: document.getElementById("travelModelHint"),
+  resetTravelModel: document.getElementById("resetTravelModel"),
+  travelModelInputs: Array.from(document.querySelectorAll("[data-travel-model-key]"))
 };
 
 let map = null;
@@ -266,6 +341,11 @@ let mapReady = false;
 let pendingMapView = null;
 let mapMoveEndBound = false;
 let routeLayer = null;
+let mapMarkerIcon = null;
+let shanghaiBoundaryBounds = null;
+let shanghaiBoundaryMaskLayer = null;
+let shanghaiBoundaryOutlineLayer = null;
+let shanghaiMinZoom = 9;
 const markerById = new Map();
 const scenicById = new Map(scenicSpots.map((spot) => [spot.id, spot]));
 let scene3d = null;
@@ -273,23 +353,38 @@ let scene3dGraphicsLayer = null;
 let scene3dReady = false;
 let pending3dSpotId = null;
 let scene3dRequestSeq = 0;
+let sceneRenderRequestSeq = 0;
 let buildingsLayerView = null;
 let buildingsHighlightHandle = null;
+let panoramaIndexLoaded = false;
+let panoramaIndexLoadingPromise = null;
+const panoramaBySpotId = new Map();
 const routeLegMetricsCache = new Map();
 const routeLegMetricsInFlight = new Set();
+const travelModel = { ...TRAVEL_MODEL_DEFAULTS };
 let routeMetricsLoading = false;
 let routeMetricsStatusNote = "";
 let routeMetricsRequestSeq = 0;
 let lastRouteMetricsRouteId = null;
+let searchInputDebounceTimer = null;
+let routeCachePersistTimer = null;
+let travelModelUpdateTimer = null;
+let lastFocusedElementBeforePosterModal = null;
 
+loadTravelModelFromStorage();
+loadSceneModePreferenceFromStorage();
+loadRouteMetricsCacheFromStorage();
 initSelects();
 hydrateStateFromUrl();
 renderRouteCards();
+syncTravelModelControlValues();
 bindEvents();
 syncControlValues();
+syncSceneModeUi();
 showShareProtocolHint();
 initMap();
 initScene3D();
+loadPanoramaIndex();
 updateView();
 
 function initSelects() {
@@ -309,22 +404,29 @@ function initSelects() {
 }
 
 function bindEvents() {
-  refs.searchInput.addEventListener("input", (event) => {
-    state.search = event.target.value.trim();
-    updateView();
+  refs.searchInput.addEventListener("input", () => {
+    clearSearchInputDebounce();
+    searchInputDebounceTimer = window.setTimeout(() => {
+      searchInputDebounceTimer = null;
+      state.search = refs.searchInput.value.trim();
+      updateView();
+    }, SEARCH_INPUT_DEBOUNCE_MS);
   });
 
   refs.districtSelect.addEventListener("change", (event) => {
+    syncSearchStateFromInput();
     state.district = event.target.value;
     updateView();
   });
 
   refs.typeSelect.addEventListener("change", (event) => {
+    syncSearchStateFromInput();
     state.type = event.target.value;
     updateView();
   });
 
   refs.resetFilters.addEventListener("click", () => {
+    clearSearchInputDebounce();
     state.search = "";
     state.district = "all";
     state.type = "all";
@@ -337,8 +439,32 @@ function bindEvents() {
   });
 
   refs.focusShanghai.addEventListener("click", () => {
-    setMapView(SHANGHAI_CENTER[0], SHANGHAI_CENTER[1], SHANGHAI_ZOOM, true);
+    fitMapToShanghaiBounds(true);
   });
+
+  if (refs.sceneModePanorama) {
+    refs.sceneModePanorama.addEventListener("click", () => {
+      if (state.sceneMode === "panorama") {
+        return;
+      }
+      setSceneMode("panorama", {
+        persistPreference: true,
+        refreshActiveSpot: true
+      });
+    });
+  }
+
+  if (refs.sceneMode3d) {
+    refs.sceneMode3d.addEventListener("click", () => {
+      if (state.sceneMode === "scene3d") {
+        return;
+      }
+      setSceneMode("scene3d", {
+        persistPreference: true,
+        refreshActiveSpot: true
+      });
+    });
+  }
 
   refs.shareApp.addEventListener("click", async () => {
     await shareCurrentView();
@@ -351,6 +477,7 @@ function bindEvents() {
   }
 
   refs.clearRoute.addEventListener("click", () => {
+    syncSearchStateFromInput();
     state.activeRouteId = null;
     updateView();
   });
@@ -367,6 +494,8 @@ function bindEvents() {
         closePosterModal();
       }
     });
+
+    refs.posterModal.addEventListener("keydown", handlePosterModalKeydown);
   }
 
   if (refs.downloadPoster) {
@@ -396,13 +525,344 @@ function bindEvents() {
     });
   }
 
+  if (refs.resetTravelModel) {
+    refs.resetTravelModel.addEventListener("click", () => {
+      applyTravelModel(TRAVEL_MODEL_DEFAULTS, "已恢复默认交通估时参数。");
+    });
+  }
+
+  refs.travelModelInputs.forEach((input) => {
+    input.addEventListener("input", () => {
+      scheduleTravelModelUpdate();
+    });
+
+    input.addEventListener("change", () => {
+      scheduleTravelModelUpdate(true);
+    });
+  });
+
   document.addEventListener("keydown", (event) => {
     if (event.key === "Escape" && refs.posterModal && !refs.posterModal.hidden) {
       closePosterModal();
     }
   });
 
+  window.addEventListener("beforeunload", () => {
+    clearSearchInputDebounce();
+    if (routeCachePersistTimer) {
+      clearTimeout(routeCachePersistTimer);
+      routeCachePersistTimer = null;
+    }
+    if (travelModelUpdateTimer) {
+      clearTimeout(travelModelUpdateTimer);
+      travelModelUpdateTimer = null;
+    }
+    persistTravelModelToStorage();
+    persistRouteMetricsCacheToStorage();
+  });
+
   bindMapMoveEnd();
+}
+
+function clearSearchInputDebounce() {
+  if (!searchInputDebounceTimer) {
+    return;
+  }
+
+  clearTimeout(searchInputDebounceTimer);
+  searchInputDebounceTimer = null;
+}
+
+function syncSearchStateFromInput() {
+  clearSearchInputDebounce();
+  state.search = refs.searchInput.value.trim();
+}
+
+function normalizeSceneMode(mode) {
+  return mode === "scene3d" ? "scene3d" : "panorama";
+}
+
+function loadSceneModePreferenceFromStorage() {
+  if (typeof window === "undefined" || !window.localStorage) {
+    return;
+  }
+
+  try {
+    const stored = window.localStorage.getItem(PANORAMA_PREF_STORAGE_KEY);
+    if (!stored) {
+      return;
+    }
+    state.sceneMode = normalizeSceneMode(stored.trim());
+  } catch (error) {
+    // localStorage 可能不可用（如隐私模式），这里静默降级。
+  }
+}
+
+function persistSceneModePreferenceToStorage() {
+  if (typeof window === "undefined" || !window.localStorage) {
+    return;
+  }
+
+  try {
+    window.localStorage.setItem(PANORAMA_PREF_STORAGE_KEY, state.sceneMode);
+  } catch (error) {
+    // localStorage 可能不可用（如隐私模式），这里静默降级。
+  }
+}
+
+function syncSceneModeUi() {
+  const isPanorama = state.sceneMode === "panorama";
+
+  if (refs.sceneModePanorama) {
+    refs.sceneModePanorama.classList.toggle("active", isPanorama);
+    refs.sceneModePanorama.setAttribute("aria-pressed", isPanorama ? "true" : "false");
+  }
+
+  if (refs.sceneMode3d) {
+    refs.sceneMode3d.classList.toggle("active", !isPanorama);
+    refs.sceneMode3d.setAttribute("aria-pressed", !isPanorama ? "true" : "false");
+  }
+
+  if (refs.scenePanorama) {
+    refs.scenePanorama.hidden = !isPanorama;
+  }
+
+  const scene3dEl = document.getElementById("scene3d");
+  if (scene3dEl) {
+    scene3dEl.hidden = isPanorama;
+  }
+
+  if (!isPanorama && scene3d && typeof scene3d.resize === "function") {
+    scene3d.resize();
+  }
+}
+
+function setSceneFallbackNotice(message) {
+  if (!refs.sceneFallbackNotice) {
+    return;
+  }
+  refs.sceneFallbackNotice.textContent = message || "";
+}
+
+function setSceneMode(mode, options = {}) {
+  const nextMode = normalizeSceneMode(mode);
+  if (state.sceneMode !== nextMode) {
+    state.sceneMode = nextMode;
+  }
+
+  syncSceneModeUi();
+  if (options.persistPreference) {
+    persistSceneModePreferenceToStorage();
+  }
+
+  if (options.refreshActiveSpot) {
+    const spotId = state.selectedSpotId || state.active3dSpotId || getFilteredSpots()[0]?.id || null;
+    if (spotId) {
+      updateSpotSceneById(spotId);
+    } else {
+      resetScene3D();
+    }
+  }
+
+  syncUrlState();
+}
+
+function getTravelModelFieldConfigByKey(key) {
+  return TRAVEL_MODEL_FIELDS.find((field) => field.key === key) || null;
+}
+
+function clampTravelModelValue(key, value) {
+  const config = getTravelModelFieldConfigByKey(key);
+  if (!config) {
+    return null;
+  }
+
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) {
+    return null;
+  }
+
+  const clamped = Math.min(config.max, Math.max(config.min, parsed));
+  const decimals = String(config.step).includes(".") ? String(config.step).split(".")[1].length : 0;
+  return Number(clamped.toFixed(decimals));
+}
+
+function normalizeTravelModel(inputModel) {
+  const normalized = {};
+  TRAVEL_MODEL_FIELDS.forEach((field) => {
+    const candidate = clampTravelModelValue(field.key, inputModel?.[field.key]);
+    normalized[field.key] = candidate == null ? TRAVEL_MODEL_DEFAULTS[field.key] : candidate;
+  });
+  return normalized;
+}
+
+function persistTravelModelToStorage() {
+  if (typeof window === "undefined" || !window.localStorage) {
+    return;
+  }
+
+  try {
+    window.localStorage.setItem(TRAVEL_MODEL_STORAGE_KEY, JSON.stringify(travelModel));
+  } catch (error) {
+    // localStorage 可能不可用（如隐私模式），这里静默降级。
+  }
+}
+
+function loadTravelModelFromStorage() {
+  if (typeof window === "undefined" || !window.localStorage) {
+    return;
+  }
+
+  let raw = "";
+  try {
+    raw = window.localStorage.getItem(TRAVEL_MODEL_STORAGE_KEY) || "";
+  } catch (error) {
+    return;
+  }
+
+  if (!raw) {
+    return;
+  }
+
+  try {
+    const parsed = JSON.parse(raw);
+    Object.assign(travelModel, normalizeTravelModel(parsed));
+  } catch (error) {
+    try {
+      window.localStorage.removeItem(TRAVEL_MODEL_STORAGE_KEY);
+    } catch (ignored) {}
+  }
+}
+
+function syncTravelModelControlValues() {
+  refs.travelModelInputs.forEach((input) => {
+    const key = input.dataset.travelModelKey;
+    if (!key || !Object.prototype.hasOwnProperty.call(travelModel, key)) {
+      return;
+    }
+    input.value = String(travelModel[key]);
+  });
+}
+
+function setTravelModelHint(message) {
+  if (!refs.travelModelHint) {
+    return;
+  }
+  refs.travelModelHint.textContent = message;
+}
+
+function recalculateRouteLegMetricsCacheWithCurrentModel() {
+  let changed = false;
+  const now = Date.now();
+
+  Array.from(routeLegMetricsCache.entries()).forEach(([cacheKey, metrics]) => {
+    if (!metrics || !Number.isFinite(metrics.distanceMeters)) {
+      return;
+    }
+
+    const stable = getStableModeMinutes(metrics.distanceMeters);
+    const keepRealtimeDrive =
+      metrics.driveSource === "realtime" &&
+      Number.isFinite(metrics.driveExpiresAt) &&
+      metrics.driveExpiresAt > now;
+    const nextDriveSource = keepRealtimeDrive ? "realtime" : "model";
+    const nextDriveMinutes = keepRealtimeDrive
+      ? Math.max(1, Math.round(Number(metrics.driveMinutes) || 0))
+      : getDriveModelMinutes(metrics.distanceMeters);
+    const nextDriveTrafficLevel = keepRealtimeDrive
+      ? normalizeDriveTrafficLevel(metrics.driveTrafficLevel)
+      : "模型估算";
+
+    if (
+      metrics.walkMinutes === stable.walkMinutes &&
+      metrics.bikeMinutes === stable.bikeMinutes &&
+      metrics.metroMinutes === stable.metroMinutes &&
+      metrics.driveMinutes === nextDriveMinutes &&
+      metrics.driveSource === nextDriveSource &&
+      metrics.driveTrafficLevel === nextDriveTrafficLevel
+    ) {
+      return;
+    }
+
+    routeLegMetricsCache.set(cacheKey, {
+      ...metrics,
+      walkMinutes: stable.walkMinutes,
+      bikeMinutes: stable.bikeMinutes,
+      metroMinutes: stable.metroMinutes,
+      driveMinutes: nextDriveMinutes,
+      driveSource: nextDriveSource,
+      driveTrafficLevel: nextDriveTrafficLevel,
+      updatedAt: now,
+      modelExpiresAt: now + ROUTE_CACHE_MODEL_TTL_MS,
+      driveExpiresAt: keepRealtimeDrive ? metrics.driveExpiresAt : now + ROUTE_CACHE_MODEL_TTL_MS,
+      expiresAt: Math.max(
+        now + ROUTE_CACHE_MODEL_TTL_MS,
+        keepRealtimeDrive ? metrics.driveExpiresAt : now + ROUTE_CACHE_MODEL_TTL_MS
+      )
+    });
+    changed = true;
+  });
+
+  if (changed) {
+    schedulePersistRouteMetricsCache();
+  }
+
+  return changed;
+}
+
+function applyTravelModel(nextModel, hintMessage) {
+  const normalized = normalizeTravelModel(nextModel);
+  let changed = false;
+
+  TRAVEL_MODEL_FIELDS.forEach((field) => {
+    const key = field.key;
+    if (travelModel[key] !== normalized[key]) {
+      changed = true;
+      travelModel[key] = normalized[key];
+    }
+  });
+
+  syncTravelModelControlValues();
+  persistTravelModelToStorage();
+
+  if (changed) {
+    recalculateRouteLegMetricsCacheWithCurrentModel();
+    refreshRouteSections();
+    setTravelModelHint(hintMessage || "交通估时参数已更新，路线时间已重算。");
+    return;
+  }
+
+  setTravelModelHint("参数未发生变化。");
+}
+
+function applyTravelModelFromInputs() {
+  const nextModel = {};
+  refs.travelModelInputs.forEach((input) => {
+    const key = input.dataset.travelModelKey;
+    if (!key) {
+      return;
+    }
+    nextModel[key] = input.value;
+  });
+
+  applyTravelModel(nextModel);
+}
+
+function scheduleTravelModelUpdate(immediate) {
+  if (travelModelUpdateTimer) {
+    clearTimeout(travelModelUpdateTimer);
+    travelModelUpdateTimer = null;
+  }
+
+  if (immediate) {
+    applyTravelModelFromInputs();
+    return;
+  }
+
+  travelModelUpdateTimer = window.setTimeout(() => {
+    travelModelUpdateTimer = null;
+    applyTravelModelFromInputs();
+  }, TRAVEL_MODEL_UPDATE_DEBOUNCE_MS);
 }
 
 function getActiveRoute() {
@@ -460,13 +920,22 @@ function updateView() {
   const fallbackSpotId = state.selectedSpotId || filtered[0]?.id || null;
   if (fallbackSpotId) {
     if (state.active3dSpotId !== fallbackSpotId || !scene3dReady) {
-      updateSpot3DById(fallbackSpotId);
+      updateSpotSceneById(fallbackSpotId);
     }
     updateMapSpotInfo(scenicById.get(fallbackSpotId) || null);
   } else {
     resetScene3D();
     updateMapSpotInfo(null);
   }
+}
+
+function refreshRouteSections() {
+  const filtered = getFilteredSpots();
+  renderStats(filtered);
+  renderRouteCards();
+  renderRoutePlan();
+  renderRouteDataHint();
+  syncRouteCardState();
 }
 
 function renderList(spots) {
@@ -481,13 +950,21 @@ function renderList(spots) {
   const fragment = document.createDocumentFragment();
 
   spots.forEach((spot) => {
-    const card = document.createElement("article");
+    const card = document.createElement("button");
+    card.type = "button";
     card.className = "scenic-item";
     card.dataset.id = spot.id;
+    card.setAttribute("role", "listitem");
+    card.setAttribute("aria-pressed", state.selectedSpotId === spot.id ? "true" : "false");
+    card.setAttribute("aria-label", `${spot.name}，${spot.district}，${spot.type}，按下可地图定位`);
 
     if (state.selectedSpotId === spot.id) {
       card.classList.add("active");
     }
+
+    const parkingHtml = spot.parking
+      ? `<p class="item-parking">\u{1f17f}\ufe0f ${spot.parking.available ? "有停车场" : "无停车场"}：${spot.parking.name}（${spot.parking.distance}）${spot.parking.note ? "｜" + spot.parking.note : ""}</p>`
+      : "";
 
     card.innerHTML = `
       <div class="item-head">
@@ -496,21 +973,16 @@ function renderList(spots) {
       </div>
       <p class="item-brief">${spot.brief}</p>
       <p class="item-address">地址：${spot.address}</p>
+      ${parkingHtml}
       <p class="item-intro">${spot.intro}</p>
       <div class="item-meta">
         <span class="meta-chip">${spot.type}</span>
         <span class="meta-chip">关联年份 ${spot.year}</span>
       </div>
-      <button type="button" class="link-btn">地图定位</button>
+      <span class="link-btn" aria-hidden="true">地图定位</span>
     `;
 
     card.addEventListener("click", () => {
-      focusSpot(spot.id, true);
-    });
-
-    const locateButton = card.querySelector(".link-btn");
-    locateButton.addEventListener("click", (event) => {
-      event.stopPropagation();
       focusSpot(spot.id, true);
     });
 
@@ -525,19 +997,30 @@ function renderMap(spots) {
     return;
   }
 
-  markerById.forEach((marker) => {
-    marker.remove();
+  const visibleSpotIds = new Set(spots.map((spot) => spot.id));
+  markerById.forEach((marker, spotId) => {
+    if (!visibleSpotIds.has(spotId)) {
+      marker.remove();
+      markerById.delete(spotId);
+    }
   });
-  markerById.clear();
 
-  if (routeLayer) {
-    map.removeLayer(routeLayer);
-    routeLayer = null;
+  if (!mapMarkerIcon) {
+    mapMarkerIcon = createMarkerIcon();
   }
 
-  const markerIcon = createMarkerIcon();
   spots.forEach((spot) => {
-    const marker = window.L.marker([getSpotMapLat(spot), getSpotMapLng(spot)], { icon: markerIcon });
+    const existingMarker = markerById.get(spot.id);
+    if (existingMarker) {
+      existingMarker.setLatLng([getSpotMapLat(spot), getSpotMapLng(spot)]);
+      const popup = existingMarker.getPopup();
+      if (popup) {
+        popup.setContent(getSpotPopupHtml(spot));
+      }
+      return;
+    }
+
+    const marker = window.L.marker([getSpotMapLat(spot), getSpotMapLng(spot)], { icon: mapMarkerIcon });
     marker.bindPopup(getSpotPopupHtml(spot), {
       className: "spot-popup",
       maxWidth: 320
@@ -545,16 +1028,19 @@ function renderMap(spots) {
     marker.on("click", () => {
       state.selectedSpotId = spot.id;
       highlightSelectedCard();
-      updateSpot3DById(spot.id);
+      updateSpotSceneById(spot.id);
       updateMapSpotInfo(spot);
       syncUrlState();
     });
-
     marker.addTo(map);
     markerById.set(spot.id, marker);
+  });
 
-    if (state.selectedSpotId === spot.id) {
+  markerById.forEach((marker, spotId) => {
+    if (state.selectedSpotId === spotId) {
       marker.openPopup();
+    } else {
+      marker.closePopup();
     }
   });
 
@@ -564,6 +1050,11 @@ function renderMap(spots) {
 function drawActiveRoute(filteredSpots) {
   if (!mapReady || typeof window.L === "undefined") {
     return;
+  }
+
+  if (routeLayer) {
+    map.removeLayer(routeLayer);
+    routeLayer = null;
   }
 
   const activeRoute = getActiveRoute();
@@ -662,17 +1153,26 @@ function renderRouteCards() {
 
     const planInfo = getRoutePlanInfo(route);
     const sourceLabel = getPlanSourceLabel(planInfo);
+    const recommendedMode = getRouteRecommendedModeFromTotals(planInfo);
+    const driveSourceLabel = getDriveSourceSummaryLabel(planInfo);
     card.innerHTML = `
       <h4>${route.title}</h4>
       <p>${route.description}</p>
+      <div class="route-modes" aria-label="路线四方式总时长">
+        <span class="route-mode-chip">步行：${formatDuration(planInfo.totalWalkMinutes)}<em>模型估算</em></span>
+        <span class="route-mode-chip">骑行：${formatDuration(planInfo.totalBikeMinutes)}<em>模型估算</em></span>
+        <span class="route-mode-chip">地铁：${formatDuration(planInfo.totalMetroMinutes)}<em>模型估算</em></span>
+        <span class="route-mode-chip">驾车：${formatDuration(planInfo.totalDriveMinutes)}<em>${driveSourceLabel}</em></span>
+      </div>
       <div class="route-meta">
-        <span class="meta-chip">${route.spotIds.length} 个点 · 约 ${planInfo.totalDistanceKm.toFixed(1)} km · ${formatDuration(planInfo.totalMinutes)} · ${sourceLabel}</span>
+        <span class="meta-chip">${route.spotIds.length} 个点 · 约 ${planInfo.totalDistanceKm.toFixed(1)} km · 推荐 ${recommendedMode.label} ${formatDuration(planInfo.totalMinutes)} · ${sourceLabel}</span>
         <button class="button" type="button">查看路线</button>
       </div>
     `;
 
     const button = card.querySelector("button");
     button.addEventListener("click", () => {
+      syncSearchStateFromInput();
       state.activeRouteId = state.activeRouteId === route.id ? null : route.id;
       state.selectedSpotId = null;
       updateView();
@@ -701,37 +1201,58 @@ function renderRoutePlan() {
 
   const summary = document.createElement("section");
   summary.className = "plan-summary";
+  const routeRecommendedMode = getRouteRecommendedModeFromTotals(planInfo);
+  const driveSourceLabel = getDriveSourceSummaryLabel(planInfo);
   summary.innerHTML = `
     <h4>${activeRoute.title} · 打卡计划</h4>
-    <p>停留约 ${formatDuration(planInfo.totalVisitMinutes)}，路途约 ${formatDuration(planInfo.totalTravelMinutes)}。</p>
+    <p>停留约 ${formatDuration(planInfo.totalVisitMinutes)}，推荐路途约 ${formatDuration(planInfo.totalTravelMinutes)}（${routeRecommendedMode.label}）。</p>
     <p>路线数据：${getPlanSourceLabel(planInfo)}</p>
     <div class="plan-summary-meta">
       <span class="meta-chip">建议出发 ${formatClock(planInfo.startMinute)}</span>
       <span class="meta-chip">预计完成 ${formatClock(planInfo.endMinute)}</span>
       <span class="meta-chip">总里程 ${planInfo.totalDistanceKm.toFixed(1)} km</span>
       <span class="meta-chip">总用时 ${formatDuration(planInfo.totalMinutes)}</span>
+      <span class="meta-chip">步行 ${formatDuration(planInfo.totalWalkMinutes)}</span>
+      <span class="meta-chip">骑行 ${formatDuration(planInfo.totalBikeMinutes)}</span>
+      <span class="meta-chip">地铁 ${formatDuration(planInfo.totalMetroMinutes)}</span>
+      <span class="meta-chip">驾车 ${formatDuration(planInfo.totalDriveMinutes)}（${driveSourceLabel}）</span>
     </div>
   `;
 
   const steps = document.createElement("div");
   steps.className = "plan-steps";
+  steps.setAttribute("role", "list");
 
   planInfo.steps.forEach((step) => {
-    const item = document.createElement("article");
+    const item = document.createElement("button");
+    item.type = "button";
     item.className = "plan-step";
-
-    const sourceTag = step.nextTransfer
-      ? `<span class="plan-step-source">${step.nextTransfer.source === "real" ? "真实路网" : "估算"}</span>`
-      : "";
+    item.setAttribute("role", "listitem");
+    item.setAttribute("aria-label", `${step.order}. ${step.spot.name}，按下后定位到地图`);
 
     const transferLine = step.nextTransfer
-      ? `下一站：${step.nextTransfer.nextSpotName} · 约 ${step.nextTransfer.distanceKm.toFixed(1)} km / ${step.nextTransfer.travelMinutes} 分钟（${step.nextTransfer.transitMode}）${sourceTag}`
+      ? `下一站：${step.nextTransfer.nextSpotName} · 约 ${step.nextTransfer.distanceKm.toFixed(1)} km`
       : "终点站：本路线打卡完成。";
+    const modeRows = step.nextTransfer
+      ? step.nextTransfer.modeOptions
+          .map((modeOption) => {
+            const recommendedClass = modeOption.key === step.nextTransfer.recommendedModeKey ? " recommended" : "";
+            const sourceTag = modeOption.sourceLabel
+              ? `<span class="plan-step-source">${modeOption.sourceLabel}</span>`
+              : "";
+            const trafficTag = modeOption.trafficLevel
+              ? `<span class="plan-step-traffic">${modeOption.trafficLevel}</span>`
+              : "";
+            return `<li class="plan-step-mode${recommendedClass}"><span>${modeOption.key === step.nextTransfer.recommendedModeKey ? "推荐 " : ""}${modeOption.label}：${modeOption.minutes} 分钟</span>${sourceTag}${trafficTag}</li>`;
+          })
+          .join("")
+      : "";
 
     item.innerHTML = `
       <h5>${step.order}. ${step.spot.name}</h5>
       <p>到达 ${formatClock(step.arrivalMinute)}，建议停留 ${step.visitMinutes} 分钟，预计离开 ${formatClock(step.leaveMinute)}。</p>
       <p class="plan-step-transfer">${transferLine}</p>
+      ${step.nextTransfer ? `<ul class="plan-step-mode-list">${modeRows}</ul>` : ""}
     `;
 
     item.addEventListener("click", () => {
@@ -760,7 +1281,7 @@ function syncRouteCardState() {
 function focusSpot(spotId, flyToSpot) {
   state.selectedSpotId = spotId;
   highlightSelectedCard();
-  updateSpot3DById(spotId);
+  updateSpotSceneById(spotId);
   updateMapSpotInfo(scenicById.get(spotId) || null);
   syncUrlState();
 
@@ -783,6 +1304,7 @@ function highlightSelectedCard() {
   cards.forEach((card) => {
     const isActive = card.dataset.id === state.selectedSpotId;
     card.classList.toggle("active", isActive);
+    card.setAttribute("aria-pressed", isActive ? "true" : "false");
 
     if (isActive) {
       card.scrollIntoView({ block: "nearest", behavior: "smooth" });
@@ -798,20 +1320,311 @@ function getRouteLegCacheKey(fromSpot, toSpot) {
   return `${fromSpot.id}->${toSpot.id}`;
 }
 
+function getFreshCachedRouteLegMetrics(cacheKey) {
+  const cached = routeLegMetricsCache.get(cacheKey);
+  if (!cached) {
+    return null;
+  }
+
+  const now = Date.now();
+  if (!Number.isFinite(cached.modelExpiresAt) || cached.modelExpiresAt <= now) {
+    routeLegMetricsCache.delete(cacheKey);
+    schedulePersistRouteMetricsCache();
+    return null;
+  }
+
+  if (Number.isFinite(cached.driveExpiresAt) && cached.driveExpiresAt > now) {
+    return cached;
+  }
+
+  return {
+    ...cached,
+    driveMinutes: getDriveModelMinutes(cached.distanceMeters),
+    driveTrafficLevel: "模型估算",
+    driveSource: "model"
+  };
+}
+
+function getFallbackDistanceMeters(fromSpot, toSpot) {
+  return Math.max(120, Math.round(haversine(fromSpot, toSpot) * 1000 * 1.25));
+}
+
+function getStableModeMinutes(distanceMeters) {
+  const safeDistanceKm = Math.max(0, Number(distanceMeters) || 0) / 1000;
+  const walkMinutes = Math.max(
+    4,
+    Math.round((safeDistanceKm / travelModel.walkingSpeedKmh) * 60 + travelModel.walkingTransferBufferMinutes)
+  );
+  const bikeMinutes = Math.max(
+    3,
+    Math.round((safeDistanceKm / ROUTE_MODEL_BIKE_SPEED_KMH) * 60 + ROUTE_MODEL_BIKE_BUFFER_MINUTES)
+  );
+  const metroMinutes = Math.max(
+    8,
+    Math.round((safeDistanceKm / travelModel.metroSpeedKmh) * 60 + travelModel.metroTransferBufferMinutes)
+  );
+
+  return {
+    walkMinutes,
+    bikeMinutes,
+    metroMinutes
+  };
+}
+
+function getDriveModelMinutes(distanceMeters) {
+  const safeDistanceKm = Math.max(0, Number(distanceMeters) || 0) / 1000;
+  const baseMinutes =
+    (safeDistanceKm / travelModel.taxiSpeedKmh) * 60 + travelModel.taxiTransferBufferMinutes;
+  const congestedMinutes = baseMinutes * ROUTE_MODEL_DRIVE_CONGESTION_FACTOR + ROUTE_MODEL_DRIVE_BASE_MINUTES;
+  return Math.max(8, Math.round(congestedMinutes));
+}
+
+function normalizeDriveTrafficLevel(level) {
+  const value = typeof level === "string" ? level.trim() : "";
+  if (!value) {
+    return "未知";
+  }
+  if (["畅通", "缓行", "拥堵", "严重拥堵", "非常拥堵", "未知"].includes(value)) {
+    return value;
+  }
+  return "未知";
+}
+
+function getDriveSourceLabel(source) {
+  return source === "realtime" ? "实时路况" : "模型估算";
+}
+
+function buildRouteLegMetricsRecord(input) {
+  const distanceMeters = Math.max(0, Math.round(Number(input?.distanceMeters) || 0));
+  const stable = getStableModeMinutes(distanceMeters);
+  const driveSource = input?.driveSource === "realtime" ? "realtime" : "model";
+  const driveMinutesCandidate = Math.round(Number(input?.driveMinutes));
+  const driveMinutes = Number.isFinite(driveMinutesCandidate) && driveMinutesCandidate > 0
+    ? driveMinutesCandidate
+    : getDriveModelMinutes(distanceMeters);
+  const now = Date.now();
+  const updatedAt = Number(input?.updatedAt);
+  const normalizedUpdatedAt = Number.isFinite(updatedAt) && updatedAt > 0 ? updatedAt : now;
+  const modelExpiresAtCandidate = Number(input?.modelExpiresAt);
+  const modelExpiresAt = Number.isFinite(modelExpiresAtCandidate) && modelExpiresAtCandidate > normalizedUpdatedAt
+    ? modelExpiresAtCandidate
+    : normalizedUpdatedAt + ROUTE_CACHE_MODEL_TTL_MS;
+  const driveExpiresAtCandidate = Number(input?.driveExpiresAt);
+  const fallbackDriveTtl = driveSource === "realtime" ? ROUTE_CACHE_DRIVE_REALTIME_TTL_MS : ROUTE_CACHE_MODEL_TTL_MS;
+  const driveExpiresAt = Number.isFinite(driveExpiresAtCandidate) && driveExpiresAtCandidate > normalizedUpdatedAt
+    ? driveExpiresAtCandidate
+    : normalizedUpdatedAt + fallbackDriveTtl;
+
+  return {
+    distanceMeters,
+    walkMinutes: stable.walkMinutes,
+    bikeMinutes: stable.bikeMinutes,
+    metroMinutes: stable.metroMinutes,
+    driveMinutes,
+    driveTrafficLevel: driveSource === "realtime" ? normalizeDriveTrafficLevel(input?.driveTrafficLevel) : "模型估算",
+    driveSource,
+    updatedAt: normalizedUpdatedAt,
+    modelExpiresAt,
+    driveExpiresAt,
+    expiresAt: Math.max(modelExpiresAt, driveExpiresAt)
+  };
+}
+
+function normalizeStoredRouteLegMetrics(metrics) {
+  if (!metrics || typeof metrics !== "object") {
+    return null;
+  }
+
+  const distanceMeters = Number(metrics.distanceMeters);
+  if (!Number.isFinite(distanceMeters) || distanceMeters < 0) {
+    return null;
+  }
+
+  return buildRouteLegMetricsRecord(metrics);
+}
+
+function setRouteLegMetricsCache(cacheKey, metrics) {
+  if (!cacheKey) {
+    return;
+  }
+
+  const now = Date.now();
+  const normalized = buildRouteLegMetricsRecord({
+    ...metrics,
+    updatedAt: now,
+    modelExpiresAt: now + ROUTE_CACHE_MODEL_TTL_MS,
+    driveExpiresAt:
+      now +
+      (metrics?.driveSource === "realtime" ? ROUTE_CACHE_DRIVE_REALTIME_TTL_MS : ROUTE_CACHE_MODEL_TTL_MS)
+  });
+
+  routeLegMetricsCache.set(cacheKey, normalized);
+  pruneRouteMetricsCache();
+  schedulePersistRouteMetricsCache();
+}
+
+function pruneRouteMetricsCache() {
+  let changed = false;
+  const now = Date.now();
+
+  Array.from(routeLegMetricsCache.entries()).forEach(([cacheKey, metrics]) => {
+    if (
+      !metrics ||
+      !Number.isFinite(metrics.modelExpiresAt) ||
+      !Number.isFinite(metrics.expiresAt) ||
+      metrics.modelExpiresAt <= now ||
+      metrics.expiresAt <= now
+    ) {
+      routeLegMetricsCache.delete(cacheKey);
+      changed = true;
+    }
+  });
+
+  if (routeLegMetricsCache.size <= ROUTE_CACHE_MAX_ENTRIES) {
+    return changed;
+  }
+
+  const sortedByRecent = Array.from(routeLegMetricsCache.entries()).sort((a, b) => {
+    const aTime = Number(a[1]?.updatedAt) || 0;
+    const bTime = Number(b[1]?.updatedAt) || 0;
+    return bTime - aTime;
+  });
+  const keepKeys = new Set(
+    sortedByRecent.slice(0, ROUTE_CACHE_MAX_ENTRIES).map(([cacheKey]) => cacheKey)
+  );
+
+  Array.from(routeLegMetricsCache.keys()).forEach((cacheKey) => {
+    if (!keepKeys.has(cacheKey)) {
+      routeLegMetricsCache.delete(cacheKey);
+      changed = true;
+    }
+  });
+
+  return changed;
+}
+
+function schedulePersistRouteMetricsCache() {
+  if (routeCachePersistTimer) {
+    clearTimeout(routeCachePersistTimer);
+  }
+
+  routeCachePersistTimer = window.setTimeout(() => {
+    routeCachePersistTimer = null;
+    persistRouteMetricsCacheToStorage();
+  }, ROUTE_CACHE_PERSIST_DEBOUNCE_MS);
+}
+
+function persistRouteMetricsCacheToStorage() {
+  if (typeof window === "undefined" || !window.localStorage) {
+    return;
+  }
+
+  pruneRouteMetricsCache();
+  const payload = {};
+  routeLegMetricsCache.forEach((metrics, cacheKey) => {
+    payload[cacheKey] = metrics;
+  });
+
+  try {
+    if (Object.keys(payload).length) {
+      window.localStorage.setItem(ROUTE_CACHE_STORAGE_KEY, JSON.stringify(payload));
+    } else {
+      window.localStorage.removeItem(ROUTE_CACHE_STORAGE_KEY);
+    }
+  } catch (error) {
+    // localStorage 可能不可用（如隐私模式），这里静默降级到内存缓存
+  }
+}
+
+function loadRouteMetricsCacheFromStorage() {
+  if (typeof window === "undefined" || !window.localStorage) {
+    return;
+  }
+
+  let raw = "";
+  try {
+    raw = window.localStorage.getItem(ROUTE_CACHE_STORAGE_KEY) || "";
+  } catch (error) {
+    return;
+  }
+
+  if (!raw) {
+    return;
+  }
+
+  let parsed = null;
+  try {
+    parsed = JSON.parse(raw);
+  } catch (error) {
+    try {
+      window.localStorage.removeItem(ROUTE_CACHE_STORAGE_KEY);
+    } catch (ignored) {}
+    return;
+  }
+
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+    return;
+  }
+
+  let changed = false;
+  Object.entries(parsed).forEach(([cacheKey, metrics]) => {
+    const normalized = normalizeStoredRouteLegMetrics(metrics);
+    if (!normalized) {
+      changed = true;
+      return;
+    }
+
+    routeLegMetricsCache.set(cacheKey, normalized);
+  });
+
+  if (pruneRouteMetricsCache()) {
+    changed = true;
+  }
+
+  if (changed) {
+    persistRouteMetricsCacheToStorage();
+  }
+}
+
 function getRouteLegMetrics(fromSpot, toSpot) {
   const cacheKey = getRouteLegCacheKey(fromSpot, toSpot);
-  const cached = routeLegMetricsCache.get(cacheKey);
+  const cached = getFreshCachedRouteLegMetrics(cacheKey);
   if (cached) {
     return cached;
   }
 
-  const distanceKm = haversine(fromSpot, toSpot);
-  return {
-    distanceKm,
-    travelMinutes: getTravelMinutes(distanceKm),
-    transitMode: getTransitMode(distanceKm),
-    source: "estimated"
-  };
+  return buildRouteLegMetricsRecord({
+    distanceMeters: getFallbackDistanceMeters(fromSpot, toSpot),
+    driveSource: "model"
+  });
+}
+
+function getRouteRecommendedModeFromTotals(planInfo) {
+  const candidates = [
+    { key: "walk", label: "步行", minutes: planInfo.totalWalkMinutes },
+    { key: "bike", label: "骑行", minutes: planInfo.totalBikeMinutes },
+    { key: "metro", label: "地铁", minutes: planInfo.totalMetroMinutes },
+    { key: "drive", label: "驾车", minutes: planInfo.totalDriveMinutes }
+  ].filter((item) => Number.isFinite(item.minutes) && item.minutes >= 0);
+
+  if (!candidates.length) {
+    return { key: "metro", label: "地铁", minutes: 0 };
+  }
+
+  return candidates.reduce((best, current) => (current.minutes < best.minutes ? current : best));
+}
+
+function getDriveSourceSummaryLabel(planInfo) {
+  if (!planInfo.totalLegCount) {
+    return "模型估算";
+  }
+  if (planInfo.driveRealtimeLegCount === planInfo.totalLegCount) {
+    return "实时路况";
+  }
+  if (planInfo.driveRealtimeLegCount === 0) {
+    return "模型估算";
+  }
+  return "混合";
 }
 
 function getPlanSourceLabel(planInfo) {
@@ -819,15 +1632,15 @@ function getPlanSourceLabel(planInfo) {
     return "无路段数据";
   }
 
-  if (planInfo.realLegCount === planInfo.totalLegCount) {
-    return "真实路网";
+  if (planInfo.driveRealtimeLegCount === planInfo.totalLegCount) {
+    return "实时路况 + 模型估算";
   }
 
-  if (planInfo.realLegCount === 0) {
-    return "估算";
+  if (planInfo.driveRealtimeLegCount === 0) {
+    return "模型估算";
   }
 
-  return `混合（真实 ${planInfo.realLegCount}/${planInfo.totalLegCount}）`;
+  return `混合（实时路况 ${planInfo.driveRealtimeLegCount}/${planInfo.totalLegCount}）`;
 }
 
 function renderRouteDataHint() {
@@ -839,19 +1652,25 @@ function renderRouteDataHint() {
 
   const activeRoute = getActiveRoute();
   if (!activeRoute) {
-    refs.routeDataHint.textContent = "路线时间默认按城市速度估算。";
+    refs.routeDataHint.textContent = "路线时间默认按模型估算，驾车可在配置 Key 后启用实时路况。";
     return;
   }
 
   const planInfo = getRoutePlanInfo(activeRoute);
   if (routeMetricsLoading) {
-    refs.routeDataHint.textContent = "正在加载真实路网里程与时间...";
+    refs.routeDataHint.textContent = "正在获取驾车实时路况（步行/骑行/地铁保持模型估算）...";
     refs.routeDataHint.classList.add("loading");
     return;
   }
 
-  if (planInfo.realLegCount === planInfo.totalLegCount && planInfo.totalLegCount > 0) {
-    refs.routeDataHint.textContent = "当前路线已使用真实路网时间。";
+  if (!AMAP_WEB_SERVICE_KEY) {
+    refs.routeDataHint.textContent = "未配置高德 Key，驾车时长已回退为模型估算。";
+    refs.routeDataHint.classList.add("partial");
+    return;
+  }
+
+  if (planInfo.driveRealtimeLegCount === planInfo.totalLegCount && planInfo.totalLegCount > 0) {
+    refs.routeDataHint.textContent = "当前路线驾车时长已全部命中实时路况。";
     return;
   }
 
@@ -861,10 +1680,32 @@ function renderRouteDataHint() {
     return;
   }
 
-  refs.routeDataHint.textContent = `当前路线有 ${planInfo.realLegCount}/${planInfo.totalLegCount} 段已获取真实路网时间。`;
-  if (planInfo.realLegCount < planInfo.totalLegCount) {
+  refs.routeDataHint.textContent = `当前路线驾车实时路况命中 ${planInfo.driveRealtimeLegCount}/${planInfo.totalLegCount} 段。`;
+  if (planInfo.driveRealtimeLegCount < planInfo.totalLegCount) {
     refs.routeDataHint.classList.add("partial");
   }
+}
+
+function shouldFetchRouteLegMetrics(cacheKey) {
+  const cachedRaw = routeLegMetricsCache.get(cacheKey);
+  if (!cachedRaw) {
+    return true;
+  }
+
+  const now = Date.now();
+  if (!Number.isFinite(cachedRaw.modelExpiresAt) || cachedRaw.modelExpiresAt <= now) {
+    return true;
+  }
+
+  if (!AMAP_WEB_SERVICE_KEY) {
+    return false;
+  }
+
+  return (
+    cachedRaw.driveSource !== "realtime" ||
+    !Number.isFinite(cachedRaw.driveExpiresAt) ||
+    cachedRaw.driveExpiresAt <= now
+  );
 }
 
 function prefetchActiveRouteMetrics() {
@@ -895,7 +1736,7 @@ function prefetchActiveRouteMetrics() {
     const fromSpot = routeSpots[i];
     const toSpot = routeSpots[i + 1];
     const cacheKey = getRouteLegCacheKey(fromSpot, toSpot);
-    if (!routeLegMetricsCache.has(cacheKey) && !routeLegMetricsInFlight.has(cacheKey)) {
+    if (shouldFetchRouteLegMetrics(cacheKey) && !routeLegMetricsInFlight.has(cacheKey)) {
       missingPairs.push({ fromSpot, toSpot, cacheKey });
     }
   }
@@ -913,16 +1754,13 @@ function prefetchActiveRouteMetrics() {
     routeLegMetricsInFlight.add(cacheKey);
     try {
       const metrics = await fetchRouteLegMetrics(fromSpot, toSpot);
-      routeLegMetricsCache.set(cacheKey, metrics);
+      setRouteLegMetricsCache(cacheKey, metrics);
     } catch (error) {
-      const fallbackDistance = haversine(fromSpot, toSpot);
-      routeLegMetricsCache.set(cacheKey, {
-        distanceKm: fallbackDistance,
-        travelMinutes: getTravelMinutes(fallbackDistance),
-        transitMode: getTransitMode(fallbackDistance),
-        source: "estimated"
+      setRouteLegMetricsCache(cacheKey, {
+        distanceMeters: getFallbackDistanceMeters(fromSpot, toSpot),
+        driveSource: "model"
       });
-      routeMetricsStatusNote = "部分路段获取真实路网失败，已回退为估算。";
+      routeMetricsStatusNote = "部分路段实时路况获取失败，已自动回退为模型估算。";
     } finally {
       routeLegMetricsInFlight.delete(cacheKey);
     }
@@ -934,63 +1772,125 @@ function prefetchActiveRouteMetrics() {
     }
 
     routeMetricsLoading = false;
-    updateView();
+    refreshRouteSections();
   });
 }
 
-async function fetchRouteLegMetrics(fromSpot, toSpot) {
-  const straightDistanceKm = haversine(fromSpot, toSpot);
-  const profile = chooseRouteProfile(straightDistanceKm);
+function extractAmapTrafficLevel(path) {
+  const severity = {
+    畅通: 1,
+    缓行: 2,
+    拥堵: 3,
+    严重拥堵: 4,
+    非常拥堵: 4
+  };
+  let topLevel = "未知";
+  let topScore = 0;
+
+  const steps = Array.isArray(path?.steps) ? path.steps : [];
+  steps.forEach((step) => {
+    const tmcs = Array.isArray(step?.tmcs) ? step.tmcs : [];
+    tmcs.forEach((segment) => {
+      const status = normalizeDriveTrafficLevel(segment?.status);
+      const score = severity[status] || 0;
+      if (score > topScore) {
+        topScore = score;
+        topLevel = status;
+      }
+    });
+  });
+
+  return topLevel;
+}
+
+async function fetchAmapDrivingMetrics(fromSpot, toSpot) {
+  if (!AMAP_WEB_SERVICE_KEY) {
+    throw new Error("AMap key unavailable");
+  }
+
+  const origin = `${getSpotMapLng(fromSpot)},${getSpotMapLat(fromSpot)}`;
+  const destination = `${getSpotMapLng(toSpot)},${getSpotMapLat(toSpot)}`;
+  const params = new URLSearchParams({
+    key: AMAP_WEB_SERVICE_KEY,
+    origin,
+    destination,
+    extensions: "all",
+    strategy: "0",
+    output: "json"
+  });
+  const url = `${AMAP_DRIVING_API_URL}?${params.toString()}`;
+  const data = await fetchJsonWithTimeout(url, ROUTE_FETCH_TIMEOUT_MS);
+  if (!data || data.status !== "1" || !data.route || !Array.isArray(data.route.paths) || !data.route.paths.length) {
+    throw new Error("AMap driving payload invalid.");
+  }
+
+  const firstPath = data.route.paths[0];
+  const distanceMeters = Math.max(0, Math.round(Number(firstPath.distance) || 0));
+  const driveMinutes = Math.max(1, Math.round((Number(firstPath.duration) || 0) / 60));
+  if (!distanceMeters || !driveMinutes) {
+    throw new Error("AMap driving distance or duration invalid.");
+  }
+
+  return {
+    distanceMeters,
+    driveMinutes,
+    driveTrafficLevel: extractAmapTrafficLevel(firstPath)
+  };
+}
+
+async function fetchNetworkDistanceMeters(fromSpot, toSpot) {
   const fromLng = getSpotMapLng(fromSpot);
   const fromLat = getSpotMapLat(fromSpot);
   const toLng = getSpotMapLng(toSpot);
   const toLat = getSpotMapLat(toSpot);
-
-  const routeUrl = `${REAL_ROUTE_ENGINE_URL}/route/v1/${profile}/${fromLng},${fromLat};${toLng},${toLat}?overview=false&alternatives=false&steps=false&continue_straight=true`;
+  const routeUrl = `${REAL_ROUTE_ENGINE_URL}/route/v1/driving/${fromLng},${fromLat};${toLng},${toLat}?overview=false&alternatives=false&steps=false&continue_straight=true`;
   const data = await fetchJsonWithTimeout(routeUrl, ROUTE_FETCH_TIMEOUT_MS);
-
   if (!data || data.code !== "Ok" || !Array.isArray(data.routes) || !data.routes.length) {
     throw new Error("Route engine returned invalid payload.");
   }
 
   const firstRoute = data.routes[0];
-  const distanceKm = (firstRoute.distance || 0) / 1000;
-  const travelMinutes = Math.max(3, Math.round((firstRoute.duration || 0) / 60));
-
-  return {
-    distanceKm,
-    travelMinutes,
-    transitMode: getTransitModeByProfile(profile, distanceKm),
-    source: "real"
-  };
+  return Math.max(0, Math.round(Number(firstRoute.distance) || 0));
 }
 
-function chooseRouteProfile(straightDistanceKm) {
-  if (straightDistanceKm <= 2.5) {
-    return "walking";
+async function fetchRouteLegMetrics(fromSpot, toSpot) {
+  let distanceMeters = 0;
+  let driveMinutes = 0;
+  let driveTrafficLevel = "模型估算";
+  let driveSource = "model";
+
+  if (AMAP_WEB_SERVICE_KEY) {
+    try {
+      const realTimeMetrics = await fetchAmapDrivingMetrics(fromSpot, toSpot);
+      distanceMeters = realTimeMetrics.distanceMeters;
+      driveMinutes = realTimeMetrics.driveMinutes;
+      driveTrafficLevel = realTimeMetrics.driveTrafficLevel;
+      driveSource = "realtime";
+    } catch (error) {
+      routeMetricsStatusNote = "部分路段未命中实时路况，已混合模型估算。";
+    }
   }
 
-  if (straightDistanceKm <= 8) {
-    return "cycling";
+  if (!distanceMeters) {
+    try {
+      distanceMeters = await fetchNetworkDistanceMeters(fromSpot, toSpot);
+    } catch (error) {
+      distanceMeters = getFallbackDistanceMeters(fromSpot, toSpot);
+    }
   }
 
-  return "driving";
-}
-
-function getTransitModeByProfile(profile, distanceKm) {
-  if (profile === "walking") {
-    return "步行";
+  if (!driveMinutes || driveSource !== "realtime") {
+    driveMinutes = getDriveModelMinutes(distanceMeters);
+    driveTrafficLevel = "模型估算";
+    driveSource = "model";
   }
 
-  if (profile === "cycling") {
-    return "骑行";
-  }
-
-  if (distanceKm > 15) {
-    return "驾车/网约车";
-  }
-
-  return "驾车";
+  return buildRouteLegMetricsRecord({
+    distanceMeters,
+    driveMinutes,
+    driveTrafficLevel,
+    driveSource
+  });
 }
 
 async function fetchJsonWithTimeout(url, timeoutMs) {
@@ -1012,6 +1912,51 @@ async function fetchJsonWithTimeout(url, timeoutMs) {
   }
 }
 
+function chooseRecommendedModeForLeg(legMetrics) {
+  const candidates = [
+    { key: "walk", label: "步行", minutes: legMetrics.walkMinutes },
+    { key: "bike", label: "骑行", minutes: legMetrics.bikeMinutes },
+    { key: "metro", label: "地铁", minutes: legMetrics.metroMinutes },
+    { key: "drive", label: "驾车", minutes: legMetrics.driveMinutes }
+  ];
+
+  return candidates.reduce((best, current) => (current.minutes < best.minutes ? current : best));
+}
+
+function buildLegModeOptions(legMetrics, recommendedModeKey) {
+  return [
+    {
+      key: "walk",
+      label: "步行",
+      minutes: legMetrics.walkMinutes,
+      sourceLabel: "模型估算"
+    },
+    {
+      key: "bike",
+      label: "骑行",
+      minutes: legMetrics.bikeMinutes,
+      sourceLabel: "模型估算"
+    },
+    {
+      key: "metro",
+      label: "地铁",
+      minutes: legMetrics.metroMinutes,
+      sourceLabel: "模型估算"
+    },
+    {
+      key: "drive",
+      label: "驾车",
+      minutes: legMetrics.driveMinutes,
+      sourceLabel: getDriveSourceLabel(legMetrics.driveSource),
+      trafficLevel:
+        legMetrics.driveSource === "realtime" ? normalizeDriveTrafficLevel(legMetrics.driveTrafficLevel) : ""
+    }
+  ].map((mode) => ({
+    ...mode,
+    recommended: mode.key === recommendedModeKey
+  }));
+}
+
 function getRoutePlanInfo(route) {
   const routeSpots = route.spotIds.map((id) => scenicById.get(id)).filter(Boolean);
   const steps = [];
@@ -1022,20 +1967,28 @@ function getRoutePlanInfo(route) {
       totalDistanceKm: 0,
       totalVisitMinutes: 0,
       totalTravelMinutes: 0,
+      totalWalkMinutes: 0,
+      totalBikeMinutes: 0,
+      totalMetroMinutes: 0,
+      totalDriveMinutes: 0,
       totalMinutes: 0,
       totalLegCount: 0,
-      realLegCount: 0,
-      estimatedLegCount: 0,
+      driveRealtimeLegCount: 0,
+      driveModelLegCount: 0,
       startMinute: ROUTE_START_MINUTE,
       endMinute: ROUTE_START_MINUTE
     };
   }
 
-  let totalDistanceKm = 0;
+  let totalDistanceMeters = 0;
   let totalVisitMinutes = 0;
   let totalTravelMinutes = 0;
-  let realLegCount = 0;
-  let estimatedLegCount = 0;
+  let totalWalkMinutes = 0;
+  let totalBikeMinutes = 0;
+  let totalMetroMinutes = 0;
+  let totalDriveMinutes = 0;
+  let driveRealtimeLegCount = 0;
+  let driveModelLegCount = 0;
   let currentMinute = ROUTE_START_MINUTE;
 
   for (let i = 0; i < routeSpots.length; i += 1) {
@@ -1049,23 +2002,30 @@ function getRoutePlanInfo(route) {
     if (i < routeSpots.length - 1) {
       const nextSpot = routeSpots[i + 1];
       const legMetrics = getRouteLegMetrics(spot, nextSpot);
+      const recommendedMode = chooseRecommendedModeForLeg(legMetrics);
+      const modeOptions = buildLegModeOptions(legMetrics, recommendedMode.key);
 
-      totalDistanceKm += legMetrics.distanceKm;
-      totalTravelMinutes += legMetrics.travelMinutes;
-      currentMinute = leaveMinute + legMetrics.travelMinutes;
+      totalDistanceMeters += legMetrics.distanceMeters;
+      totalTravelMinutes += recommendedMode.minutes;
+      totalWalkMinutes += legMetrics.walkMinutes;
+      totalBikeMinutes += legMetrics.bikeMinutes;
+      totalMetroMinutes += legMetrics.metroMinutes;
+      totalDriveMinutes += legMetrics.driveMinutes;
+      currentMinute = leaveMinute + recommendedMode.minutes;
 
-      if (legMetrics.source === "real") {
-        realLegCount += 1;
+      if (legMetrics.driveSource === "realtime") {
+        driveRealtimeLegCount += 1;
       } else {
-        estimatedLegCount += 1;
+        driveModelLegCount += 1;
       }
 
       nextTransfer = {
         nextSpotName: nextSpot.name,
-        distanceKm: legMetrics.distanceKm,
-        travelMinutes: legMetrics.travelMinutes,
-        transitMode: legMetrics.transitMode,
-        source: legMetrics.source
+        distanceKm: legMetrics.distanceMeters / 1000,
+        recommendedModeKey: recommendedMode.key,
+        recommendedModeLabel: recommendedMode.label,
+        recommendedMinutes: recommendedMode.minutes,
+        modeOptions
       };
     } else {
       currentMinute = leaveMinute;
@@ -1084,13 +2044,17 @@ function getRoutePlanInfo(route) {
   const totalMinutes = totalVisitMinutes + totalTravelMinutes;
   return {
     steps,
-    totalDistanceKm,
+    totalDistanceKm: totalDistanceMeters / 1000,
     totalVisitMinutes,
     totalTravelMinutes,
+    totalWalkMinutes,
+    totalBikeMinutes,
+    totalMetroMinutes,
+    totalDriveMinutes,
     totalMinutes,
     totalLegCount: Math.max(routeSpots.length - 1, 0),
-    realLegCount,
-    estimatedLegCount,
+    driveRealtimeLegCount,
+    driveModelLegCount,
     startMinute: ROUTE_START_MINUTE,
     endMinute: ROUTE_START_MINUTE + totalMinutes
   };
@@ -1098,27 +2062,6 @@ function getRoutePlanInfo(route) {
 
 function getVisitMinutes(type) {
   return STOP_TIME_BY_TYPE[type] || 60;
-}
-
-function getTravelMinutes(distanceKm) {
-  const movingMinutes = (distanceKm / URBAN_TRAVEL_SPEED_KMH) * 60;
-  return Math.max(8, Math.round(movingMinutes + TRANSFER_BUFFER_MINUTES));
-}
-
-function getTransitMode(distanceKm) {
-  if (distanceKm <= 2) {
-    return "步行/骑行";
-  }
-
-  if (distanceKm <= 8) {
-    return "地铁";
-  }
-
-  if (distanceKm <= 15) {
-    return "地铁+步行";
-  }
-
-  return "打车/网约车";
 }
 
 function formatDuration(totalMinutes) {
@@ -1159,6 +2102,210 @@ function getSpotPopupHtml(spot) {
   `;
 }
 
+async function loadShanghaiBoundaryFeature() {
+  const payload = await fetchJsonWithTimeout(SHANGHAI_BOUNDARY_GEOJSON_URL, ROUTE_FETCH_TIMEOUT_MS);
+  if (!payload || payload.type !== "FeatureCollection" || !Array.isArray(payload.features)) {
+    throw new Error("Boundary payload invalid.");
+  }
+
+  const feature = payload.features.find((item) => item?.geometry?.type === "Polygon" || item?.geometry?.type === "MultiPolygon");
+  if (!feature) {
+    throw new Error("Boundary feature missing.");
+  }
+
+  return feature;
+}
+
+function getBoundaryOuterRingsLatLngs(feature) {
+  const geometry = feature?.geometry;
+  if (!geometry) {
+    return [];
+  }
+
+  if (geometry.type === "Polygon" && Array.isArray(geometry.coordinates)) {
+    const outerRing = geometry.coordinates[0];
+    if (Array.isArray(outerRing)) {
+      return [
+        outerRing
+          .map((point) => [Number(point?.[1]), Number(point?.[0])])
+          .filter((point) => Number.isFinite(point[0]) && Number.isFinite(point[1]))
+      ];
+    }
+  }
+
+  if (geometry.type === "MultiPolygon" && Array.isArray(geometry.coordinates)) {
+    return geometry.coordinates
+      .map((polygon) => polygon?.[0] || [])
+      .map((ring) =>
+        ring
+          .map((point) => [Number(point?.[1]), Number(point?.[0])])
+          .filter((point) => Number.isFinite(point[0]) && Number.isFinite(point[1]))
+      )
+      .filter((ring) => ring.length >= 3);
+  }
+
+  return [];
+}
+
+function removeShanghaiMaskLayers() {
+  if (!map) {
+    return;
+  }
+
+  if (shanghaiBoundaryMaskLayer) {
+    map.removeLayer(shanghaiBoundaryMaskLayer);
+    shanghaiBoundaryMaskLayer = null;
+  }
+
+  if (shanghaiBoundaryOutlineLayer) {
+    map.removeLayer(shanghaiBoundaryOutlineLayer);
+    shanghaiBoundaryOutlineLayer = null;
+  }
+}
+
+function applyShanghaiBoundsFromRings(rings) {
+  if (!map || !rings.length || typeof window.L === "undefined") {
+    return;
+  }
+
+  const boundaryBounds = window.L.latLngBounds(rings[0]);
+  rings.slice(1).forEach((ring) => {
+    ring.forEach((point) => {
+      boundaryBounds.extend(point);
+    });
+  });
+  shanghaiBoundaryBounds = boundaryBounds;
+  map.setMaxBounds(shanghaiBoundaryBounds);
+  map.options.maxBoundsViscosity = 1;
+
+  const dynamicMinZoom = map.getBoundsZoom(shanghaiBoundaryBounds, false, [20, 20]);
+  shanghaiMinZoom = Math.max(8, Math.min(11, dynamicMinZoom));
+  map.setMinZoom(shanghaiMinZoom);
+
+  removeShanghaiMaskLayers();
+  shanghaiBoundaryOutlineLayer = window.L.geoJSON(
+    {
+      type: "Feature",
+      geometry: {
+        type: "MultiPolygon",
+        coordinates: rings.map((ring) => [ring.map((point) => [point[1], point[0]])])
+      }
+    },
+    {
+      style: {
+        color: "#b61f15",
+        weight: 1.4,
+        opacity: 0.7,
+        fillOpacity: 0
+      },
+      interactive: false
+    }
+  ).addTo(map);
+
+  const worldOuterRing = [
+    [-90, -360],
+    [-90, 360],
+    [90, 360],
+    [90, -360]
+  ];
+  shanghaiBoundaryMaskLayer = window.L.polygon([worldOuterRing, ...rings], {
+    stroke: false,
+    fillColor: "#2b1d19",
+    fillOpacity: 0.22,
+    fillRule: "evenodd",
+    interactive: false,
+    className: "map-shanghai-mask"
+  }).addTo(map);
+}
+
+async function applyShanghaiBoundaryRestriction() {
+  if (!map || typeof window.L === "undefined") {
+    return;
+  }
+
+  try {
+    const feature = await loadShanghaiBoundaryFeature();
+    const rings = getBoundaryOuterRingsLatLngs(feature);
+    if (!rings.length) {
+      throw new Error("Boundary ring missing.");
+    }
+    applyShanghaiBoundsFromRings(rings);
+  } catch (error) {
+    const fallbackBounds = window.L.latLngBounds(SHANGHAI_FALLBACK_BOUNDS);
+    shanghaiBoundaryBounds = fallbackBounds;
+    map.setMaxBounds(fallbackBounds);
+    map.options.maxBoundsViscosity = 1;
+    shanghaiMinZoom = Math.max(8, Math.min(11, map.getBoundsZoom(fallbackBounds, false, [20, 20])));
+    map.setMinZoom(shanghaiMinZoom);
+    removeShanghaiMaskLayers();
+    const [southWest, northEast] = SHANGHAI_FALLBACK_BOUNDS;
+    const fallbackRing = [
+      [southWest[0], southWest[1]],
+      [southWest[0], northEast[1]],
+      [northEast[0], northEast[1]],
+      [northEast[0], southWest[1]]
+    ];
+    shanghaiBoundaryMaskLayer = window.L.polygon(
+      [
+        [
+          [-90, -360],
+          [-90, 360],
+          [90, 360],
+          [90, -360]
+        ],
+        fallbackRing
+      ],
+      {
+        stroke: false,
+        fillColor: "#2b1d19",
+        fillOpacity: 0.22,
+        fillRule: "evenodd",
+        interactive: false,
+        className: "map-shanghai-mask"
+      }
+    ).addTo(map);
+  }
+}
+
+function clampLatLngToShanghaiBounds(lat, lng) {
+  if (!shanghaiBoundaryBounds) {
+    return {
+      lat,
+      lng
+    };
+  }
+
+  const southWest = shanghaiBoundaryBounds.getSouthWest();
+  const northEast = shanghaiBoundaryBounds.getNorthEast();
+  return {
+    lat: Math.min(northEast.lat, Math.max(southWest.lat, lat)),
+    lng: Math.min(northEast.lng, Math.max(southWest.lng, lng))
+  };
+}
+
+function fitMapToShanghaiBounds(animated) {
+  if (!mapReady || !map || !shanghaiBoundaryBounds) {
+    setMapView(SHANGHAI_CENTER[0], SHANGHAI_CENTER[1], SHANGHAI_ZOOM, Boolean(animated));
+    return;
+  }
+
+  if (animated) {
+    map.flyToBounds(shanghaiBoundaryBounds, {
+      animate: true,
+      duration: 0.9,
+      padding: [18, 18],
+      maxZoom: clampMapZoom(SHANGHAI_ZOOM)
+    });
+    return;
+  }
+
+  map.fitBounds(shanghaiBoundaryBounds, {
+    animate: false,
+    padding: [18, 18],
+    maxZoom: clampMapZoom(SHANGHAI_ZOOM)
+  });
+}
+
 function initMap() {
   if (typeof window.L === "undefined") {
     showMapUnavailable("地图引擎加载失败，请检查网络后刷新。");
@@ -1174,9 +2321,13 @@ function initMap() {
   try {
     map = window.L.map("map", {
       zoomControl: true,
-      minZoom: 4,
+      minZoom: shanghaiMinZoom,
       maxZoom: 19,
-      preferCanvas: true
+      preferCanvas: true,
+      maxBounds: window.L.latLngBounds(SHANGHAI_FALLBACK_BOUNDS),
+      maxBoundsViscosity: 1,
+      inertia: false,
+      worldCopyJump: false
     });
 
     const highResStreetLayer = window.L.tileLayer(
@@ -1217,10 +2368,25 @@ function initMap() {
 
     map.setView([startView.lat, startView.lng], clampMapZoom(startView.zoom), { animate: false });
 
-    mapReady = true;
-    clearMapUnavailable();
-    bindMapMoveEnd();
-    updateView();
+    applyShanghaiBoundaryRestriction()
+      .then(() => {
+        mapReady = true;
+        clearMapUnavailable();
+        bindMapMoveEnd();
+        if (pendingMapView) {
+          setMapView(pendingMapView.lat, pendingMapView.lng, pendingMapView.zoom, false);
+        } else {
+          fitMapToShanghaiBounds(false);
+        }
+        updateView();
+      })
+      .catch(() => {
+        mapReady = true;
+        clearMapUnavailable();
+        bindMapMoveEnd();
+        fitMapToShanghaiBounds(false);
+        updateView();
+      });
   } catch (error) {
     showMapUnavailable("地图初始化失败，请刷新后重试。");
   }
@@ -1231,7 +2397,7 @@ function clampMapZoom(zoom) {
     return SHANGHAI_ZOOM;
   }
 
-  return Math.max(9, Math.min(16, Math.round(zoom)));
+  return Math.max(shanghaiMinZoom, Math.min(17, Math.round(zoom)));
 }
 
 function bindMapMoveEnd() {
@@ -1240,6 +2406,13 @@ function bindMapMoveEnd() {
   }
 
   map.on("moveend", () => {
+    if (shanghaiBoundaryBounds) {
+      const center = map.getCenter();
+      if (!shanghaiBoundaryBounds.contains(center)) {
+        const clamped = clampLatLngToShanghaiBounds(center.lat, center.lng);
+        map.panTo(clamped, { animate: false });
+      }
+    }
     syncUrlState();
   });
 
@@ -1247,9 +2420,10 @@ function bindMapMoveEnd() {
 }
 
 function setMapView(lat, lng, zoom, animated) {
+  const clamped = clampLatLngToShanghaiBounds(lat, lng);
   pendingMapView = {
-    lat,
-    lng,
+    lat: clamped.lat,
+    lng: clamped.lng,
     zoom: clampMapZoom(zoom)
   };
 
@@ -1274,9 +2448,10 @@ function setMapView(lat, lng, zoom, animated) {
 function getMapCenter() {
   if (mapReady && map) {
     const center = map.getCenter();
+    const clampedCenter = clampLatLngToShanghaiBounds(center.lat, center.lng);
     return {
-      lat: center.lat,
-      lng: center.lng
+      lat: clampedCenter.lat,
+      lng: clampedCenter.lng
     };
   }
 
@@ -1351,12 +2526,224 @@ function updateMapSpotInfo(spot) {
     return;
   }
 
+  const parkingInfo = spot.parking
+    ? `<p><strong>\u{1f17f}\ufe0f 停车场：</strong>${spot.parking.name}（${spot.parking.distance}）${spot.parking.note ? " — " + spot.parking.note : ""}</p>`
+    : "";
+
   refs.mapSpotInfo.innerHTML = `
     <h4>${spot.name}</h4>
     <p><strong>地址：</strong>${spot.address}</p>
     <p><strong>坐标：</strong>${getSpotMapLat(spot).toFixed(6)}, ${getSpotMapLng(spot).toFixed(6)}</p>
+    ${parkingInfo}
     <p>${spot.intro}</p>
   `;
+}
+
+function normalizePanoramaRecord(record) {
+  if (!record || typeof record !== "object") {
+    return null;
+  }
+
+  const spotId = typeof record.spotId === "string" ? record.spotId.trim() : "";
+  const provider = record.provider === "local" ? "local" : record.provider === "baidu" ? "baidu" : "";
+  const panoIdOrUrl = typeof record.panoIdOrUrl === "string" ? record.panoIdOrUrl.trim() : "";
+  if (!spotId || !provider || !panoIdOrUrl || !scenicById.has(spotId)) {
+    return null;
+  }
+
+  return {
+    spotId,
+    provider,
+    panoIdOrUrl,
+    heading: Number.isFinite(Number(record.heading)) ? Number(record.heading) : 0,
+    pitch: Number.isFinite(Number(record.pitch)) ? Number(record.pitch) : 0,
+    fov: Number.isFinite(Number(record.fov)) ? Number(record.fov) : 95,
+    copyright: typeof record.copyright === "string" ? record.copyright.trim() : ""
+  };
+}
+
+async function loadPanoramaIndex() {
+  if (panoramaIndexLoaded) {
+    return panoramaBySpotId;
+  }
+  if (panoramaIndexLoadingPromise) {
+    return panoramaIndexLoadingPromise;
+  }
+
+  panoramaIndexLoadingPromise = fetchJsonWithTimeout(PANORAMA_INDEX_URL, ROUTE_FETCH_TIMEOUT_MS)
+    .then((payload) => {
+      const records = Array.isArray(payload) ? payload : [];
+      const grouped = new Map();
+      records.forEach((record) => {
+        const normalized = normalizePanoramaRecord(record);
+        if (!normalized) {
+          return;
+        }
+        if (!grouped.has(normalized.spotId)) {
+          grouped.set(normalized.spotId, []);
+        }
+        grouped.get(normalized.spotId).push(normalized);
+      });
+
+      grouped.forEach((items) => {
+        items.sort((a, b) => {
+          if (a.provider === b.provider) {
+            return 0;
+          }
+          return a.provider === "baidu" ? -1 : 1;
+        });
+      });
+
+      panoramaBySpotId.clear();
+      grouped.forEach((items, spotId) => {
+        panoramaBySpotId.set(spotId, items);
+      });
+      panoramaIndexLoaded = true;
+      panoramaIndexLoadingPromise = null;
+      return panoramaBySpotId;
+    })
+    .catch(() => {
+      panoramaIndexLoaded = true;
+      panoramaIndexLoadingPromise = null;
+      panoramaBySpotId.clear();
+      return panoramaBySpotId;
+    });
+
+  return panoramaIndexLoadingPromise;
+}
+
+function buildBaiduPanoramaUrl(record, spot) {
+  if (!BAIDU_AK) {
+    return {
+      ok: false,
+      reasonCode: "权限",
+      reasonMessage: "未配置百度街景 Key，无法加载全景。"
+    };
+  }
+
+  if (/^https?:\/\//i.test(record.panoIdOrUrl)) {
+    return {
+      ok: true,
+      url: record.panoIdOrUrl
+    };
+  }
+
+  const params = new URLSearchParams({
+    ak: BAIDU_AK,
+    width: "1280",
+    height: "720",
+    heading: String(record.heading),
+    pitch: String(record.pitch),
+    fov: String(record.fov)
+  });
+  if (record.panoIdOrUrl.includes(",")) {
+    params.set("location", record.panoIdOrUrl);
+  } else {
+    params.set("id", record.panoIdOrUrl);
+    params.set("location", `${getSpotMapLng(spot)},${getSpotMapLat(spot)}`);
+  }
+  return {
+    ok: true,
+    url: `${BAIDU_PANORAMA_IMAGE_URL}?${params.toString()}`
+  };
+}
+
+function buildPanoramaAsset(record, spot) {
+  if (record.provider === "baidu") {
+    return buildBaiduPanoramaUrl(record, spot);
+  }
+
+  if (/^https?:\/\//i.test(record.panoIdOrUrl) || record.panoIdOrUrl.startsWith("./")) {
+    return {
+      ok: true,
+      url: record.panoIdOrUrl
+    };
+  }
+
+  return {
+    ok: false,
+    reasonCode: "无覆盖",
+    reasonMessage: "本地全景素材路径无效。"
+  };
+}
+
+async function loadImageWithTimeout(src, timeoutMs) {
+  return await Promise.race([
+    loadImage(src),
+    new Promise((_, reject) => {
+      setTimeout(() => {
+        reject(new Error("timeout"));
+      }, timeoutMs);
+    })
+  ]);
+}
+
+async function tryRenderPanoramaForSpot(spot, requestId) {
+  await loadPanoramaIndex();
+  const entries = panoramaBySpotId.get(spot.id) || [];
+  if (!entries.length) {
+    return {
+      ok: false,
+      reasonCode: "无覆盖",
+      reasonMessage: "暂无可用全景。"
+    };
+  }
+
+  let lastFailure = {
+    reasonCode: "无覆盖",
+    reasonMessage: "暂无可用全景。"
+  };
+  for (const entry of entries) {
+    const candidate = buildPanoramaAsset(entry, spot);
+    if (!candidate.ok) {
+      lastFailure = {
+        reasonCode: candidate.reasonCode || "无覆盖",
+        reasonMessage: candidate.reasonMessage || "全景资源不可用。"
+      };
+      continue;
+    }
+
+    try {
+      await loadImageWithTimeout(candidate.url, 4200);
+      if (requestId !== sceneRenderRequestSeq) {
+        return {
+          ok: false,
+          reasonCode: "过期",
+          reasonMessage: "场景已切换。"
+        };
+      }
+
+      if (refs.scenePanoramaImage) {
+        refs.scenePanoramaImage.src = candidate.url;
+        refs.scenePanoramaImage.alt = `${spot.name} 全景图`;
+      }
+      if (refs.scenePanoramaMeta) {
+        refs.scenePanoramaMeta.textContent = `${entry.provider === "baidu" ? "百度街景" : "本地全景"} · ${entry.copyright || "景点全景"}`;
+      }
+      return {
+        ok: true,
+        source: entry.provider
+      };
+    } catch (error) {
+      lastFailure = {
+        reasonCode: error?.message === "timeout" ? "超时" : "无覆盖",
+        reasonMessage: error?.message === "timeout" ? "全景加载超时。" : "全景资源加载失败。"
+      };
+    }
+  }
+
+  if (refs.scenePanoramaImage) {
+    refs.scenePanoramaImage.removeAttribute("src");
+    refs.scenePanoramaImage.alt = `${spot.name} 暂无全景`;
+  }
+  if (refs.scenePanoramaMeta) {
+    refs.scenePanoramaMeta.textContent = "暂无可用全景";
+  }
+  return {
+    ok: false,
+    reasonCode: lastFailure.reasonCode,
+    reasonMessage: lastFailure.reasonMessage
+  };
 }
 
 function initScene3D() {
@@ -1417,15 +2804,19 @@ function initScene3D() {
         () => {
           scene3dReady = true;
           refs.scene3dHint.textContent = "已按馆址坐标校准，拖拽可旋转 3D 场景，滚轮可缩放。";
+          syncSceneModeUi();
 
           if (pending3dSpotId) {
             const spotId = pending3dSpotId;
             pending3dSpotId = null;
-            updateSpot3DById(spotId);
+            updateSpotSceneById(spotId);
           }
         },
         () => {
           refs.scene3dHint.textContent = "3D 场景初始化失败，请稍后重试。";
+          if (state.sceneMode === "scene3d") {
+            setSceneFallbackNotice("3D 引擎异常，请刷新后重试。");
+          }
         }
       );
 
@@ -1568,7 +2959,7 @@ function updateSpot3DById(spotId) {
   }
 
   state.active3dSpotId = spotId;
-  refs.scene3dTitle.textContent = `${spot.name} · 3D 图`;
+  refs.scene3dTitle.textContent = `${spot.name} · 3D 地图`;
   refs.scene3dMeta.textContent = `${spot.type} · ${spot.district} · ${spot.address}`;
 
   if (!scene3d || !scene3dReady || typeof scene3d.updateSpotCamera !== "function") {
@@ -1581,11 +2972,59 @@ function updateSpot3DById(spotId) {
   scene3d.updateSpotCamera(spot);
 }
 
+async function updateSpotSceneById(spotId) {
+  const spot = scenicById.get(spotId);
+  if (!spot) {
+    return;
+  }
+
+  const requestId = ++sceneRenderRequestSeq;
+  state.active3dSpotId = spotId;
+  refs.scene3dTitle.textContent = `${spot.name} · 场景视图`;
+  refs.scene3dMeta.textContent = `${spot.type} · ${spot.district} · ${spot.address}`;
+  setSceneFallbackNotice("");
+
+  if (state.sceneMode === "panorama") {
+    const panoramaResult = await tryRenderPanoramaForSpot(spot, requestId);
+    if (requestId !== sceneRenderRequestSeq) {
+      return;
+    }
+
+    if (panoramaResult.ok) {
+      if (refs.scene3dHint) {
+        refs.scene3dHint.textContent = "已进入全景视图，可切换到 3D 地图查看周边体量。";
+      }
+      return;
+    }
+
+    setSceneFallbackNotice("暂无全景，已自动切换到3D地图视图");
+    setSceneMode("scene3d", {
+      persistPreference: false,
+      refreshActiveSpot: false
+    });
+    if (refs.scene3dHint && panoramaResult.reasonCode) {
+      refs.scene3dHint.textContent = `全景加载失败（${panoramaResult.reasonCode}），已自动切换到 3D 地图。`;
+    }
+  }
+
+  updateSpot3DById(spotId);
+}
+
 function resetScene3D() {
   scene3dRequestSeq += 1;
+  sceneRenderRequestSeq += 1;
   state.active3dSpotId = null;
-  refs.scene3dTitle.textContent = "景点 3D 图";
-  refs.scene3dMeta.textContent = "点击左侧景点后显示该地点 3D 视角";
+  refs.scene3dTitle.textContent = "景点场景";
+  refs.scene3dMeta.textContent = "点击左侧景点后优先显示全景，失败时自动回退到 3D 地图";
+  setSceneFallbackNotice("");
+
+  if (refs.scenePanoramaImage) {
+    refs.scenePanoramaImage.removeAttribute("src");
+    refs.scenePanoramaImage.alt = "景点全景预览";
+  }
+  if (refs.scenePanoramaMeta) {
+    refs.scenePanoramaMeta.textContent = "选择景点后将尝试加载全景";
+  }
 
   if (scene3dGraphicsLayer) {
     scene3dGraphicsLayer.removeAll();
@@ -1617,6 +3056,7 @@ function resetScene3D() {
 }
 
 async function shareCurrentView() {
+  syncSearchStateFromInput();
   const shareUrl = buildShareUrl();
   if (!shareUrl) {
     setShareHint("当前是本地文件模式（file://），请先用 http(s) 打开后再转发。");
@@ -1658,7 +3098,73 @@ async function shareCurrentView() {
   }
 }
 
+function getPosterModalFocusableElements() {
+  if (!refs.posterModal || refs.posterModal.hidden) {
+    return [];
+  }
+
+  const dialog = refs.posterModal.querySelector(".poster-dialog");
+  if (!dialog) {
+    return [];
+  }
+
+  return Array.from(dialog.querySelectorAll(POSTER_MODAL_FOCUSABLE_SELECTOR)).filter((element) => {
+    if (!(element instanceof HTMLElement)) {
+      return false;
+    }
+
+    if (element.hasAttribute("disabled")) {
+      return false;
+    }
+
+    return element.offsetParent !== null || element === document.activeElement;
+  });
+}
+
+function focusPosterModalPrimaryAction() {
+  const focusable = getPosterModalFocusableElements();
+  if (focusable.length) {
+    focusable[0].focus();
+    return;
+  }
+
+  const dialog = refs.posterModal?.querySelector(".poster-dialog");
+  if (dialog instanceof HTMLElement) {
+    dialog.focus();
+  }
+}
+
+function handlePosterModalKeydown(event) {
+  if (event.key !== "Tab" || !refs.posterModal || refs.posterModal.hidden) {
+    return;
+  }
+
+  const focusable = getPosterModalFocusableElements();
+  if (!focusable.length) {
+    event.preventDefault();
+    return;
+  }
+
+  const first = focusable[0];
+  const last = focusable[focusable.length - 1];
+  const active = document.activeElement;
+
+  if (event.shiftKey) {
+    if (active === first || !refs.posterModal.contains(active)) {
+      event.preventDefault();
+      last.focus();
+    }
+    return;
+  }
+
+  if (active === last) {
+    event.preventDefault();
+    first.focus();
+  }
+}
+
 async function openPosterModal() {
+  syncSearchStateFromInput();
   if (!refs.posterModal || !refs.posterCanvas) {
     setShareHint("海报功能初始化失败，请刷新后重试。");
     return;
@@ -1670,10 +3176,13 @@ async function openPosterModal() {
     return;
   }
 
+  lastFocusedElementBeforePosterModal =
+    document.activeElement instanceof HTMLElement ? document.activeElement : null;
   refs.posterModal.style.display = "grid";
   refs.posterModal.hidden = false;
   document.body.style.overflow = "hidden";
   setPosterHint("海报生成中...");
+  focusPosterModalPrimaryAction();
 
   try {
     const posterResult = await renderPosterCanvas(shareUrl);
@@ -1693,9 +3202,15 @@ function closePosterModal() {
     return;
   }
 
+  const shouldRestoreFocus = !refs.posterModal.hidden;
   refs.posterModal.style.display = "none";
   refs.posterModal.hidden = true;
   document.body.style.overflow = "";
+
+  if (shouldRestoreFocus && lastFocusedElementBeforePosterModal) {
+    lastFocusedElementBeforePosterModal.focus();
+  }
+  lastFocusedElementBeforePosterModal = null;
 }
 
 function setPosterHint(message) {
@@ -1963,6 +3478,10 @@ function buildShareUrl() {
     params.set("spot", state.selectedSpotId);
   }
 
+  if (state.sceneMode === "scene3d") {
+    params.set("sceneMode", "scene3d");
+  }
+
   const center = getMapCenter();
   params.set("lat", center.lat.toFixed(5));
   params.set("lng", center.lng.toFixed(5));
@@ -2011,14 +3530,20 @@ function hydrateStateFromUrl() {
     state.selectedSpotId = spotId;
   }
 
+  const sceneMode = params.get("sceneMode");
+  if (sceneMode === "panorama" || sceneMode === "scene3d") {
+    state.sceneMode = sceneMode;
+  }
+
   const lat = Number.parseFloat(params.get("lat"));
   const lng = Number.parseFloat(params.get("lng"));
   const zoom = Number.parseInt(params.get("z"), 10);
 
   if (Number.isFinite(lat) && Number.isFinite(lng) && Number.isFinite(zoom)) {
+    const clampedCenter = clampLatLngToShanghaiBounds(lat, lng);
     pendingMapView = {
-      lat,
-      lng,
+      lat: clampedCenter.lat,
+      lng: clampedCenter.lng,
       zoom: clampMapZoom(zoom)
     };
 

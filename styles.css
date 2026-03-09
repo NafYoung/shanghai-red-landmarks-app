@@ -168,6 +168,55 @@ select:focus {
   grid-column: 1 / -1;
 }
 
+.travel-model-panel {
+  grid-column: 1 / -1;
+  border: 1px dashed rgba(143, 77, 57, 0.32);
+  border-radius: 14px;
+  background: rgba(255, 249, 242, 0.72);
+  padding: 10px 12px 12px;
+}
+
+.travel-model-panel summary {
+  cursor: pointer;
+  color: #6b3e33;
+  font-size: 13px;
+  font-weight: 700;
+  font-family: "Outfit", "Noto Serif SC", sans-serif;
+}
+
+.travel-model-panel[open] summary {
+  margin-bottom: 10px;
+}
+
+.travel-model-grid {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.travel-model-grid .control-item span {
+  font-size: 12px;
+}
+
+.travel-model-grid input {
+  padding: 8px 10px;
+  font-size: 13px;
+}
+
+.travel-model-actions {
+  margin-top: 10px;
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.travel-model-hint {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
 .route-data-hint {
   margin: 2px 2px 10px;
   color: #6c4138;
@@ -299,6 +348,16 @@ select:focus {
   transition: border-color 0.15s ease, transform 0.15s ease, background-color 0.15s ease;
 }
 
+.scenic-item,
+.plan-step {
+  width: 100%;
+  font: inherit;
+  color: inherit;
+  text-align: left;
+  appearance: none;
+  -webkit-appearance: none;
+}
+
 .scenic-item:hover {
   transform: translateY(-1px);
 }
@@ -343,6 +402,17 @@ select:focus {
   font-weight: 600;
 }
 
+.item-parking {
+  margin: 0;
+  color: #3a6e48;
+  font-size: 12px;
+  font-weight: 600;
+  background: rgba(58, 110, 72, 0.08);
+  border-radius: 6px;
+  padding: 3px 7px;
+  display: inline-block;
+}
+
 .item-intro {
   margin: 0;
   color: #704d46;
@@ -365,6 +435,7 @@ select:focus {
 }
 
 .link-btn {
+  display: inline-block;
   justify-self: start;
   border: none;
   background: transparent;
@@ -441,12 +512,70 @@ select:focus {
   margin-bottom: 10px;
 }
 
+.scene-head {
+  align-items: center;
+}
+
+.scene-mode-switch {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.scene-mode-switch .button {
+  padding: 6px 10px;
+  font-size: 12px;
+}
+
+.scene-mode-switch .button.active {
+  color: #fff4e8;
+  background: linear-gradient(120deg, var(--accent), var(--accent-deep));
+  border-color: transparent;
+}
+
+.scene-panorama {
+  padding: 0 14px 10px;
+  display: grid;
+  gap: 8px;
+}
+
+#scenePanoramaImage {
+  width: 100%;
+  min-height: 280px;
+  max-height: 420px;
+  object-fit: cover;
+  border-radius: 12px;
+  border: 1px solid rgba(150, 82, 61, 0.28);
+  background:
+    radial-gradient(circle at 22% 16%, rgba(245, 174, 98, 0.24), transparent 38%),
+    linear-gradient(180deg, rgba(255, 248, 239, 0.98), rgba(247, 236, 223, 0.96));
+}
+
+.scene-panorama-meta {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
 #scene3d {
   width: 100%;
   min-height: 360px;
   background:
     radial-gradient(circle at 25% 18%, rgba(245, 174, 98, 0.24), transparent 40%),
     linear-gradient(180deg, rgba(255, 248, 239, 0.98), rgba(247, 236, 223, 0.96));
+}
+
+#scene3d[hidden],
+#scenePanorama[hidden] {
+  display: none !important;
+}
+
+.scene-fallback-notice {
+  margin: 0;
+  padding: 0 14px;
+  color: #8f1a11;
+  font-size: 12px;
+  font-weight: 700;
 }
 
 .scene3d-hint {
@@ -588,6 +717,30 @@ select:focus {
   font-size: 13px;
 }
 
+.route-modes {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.route-mode-chip {
+  border-radius: 10px;
+  border: 1px solid rgba(144, 80, 60, 0.2);
+  background: rgba(254, 246, 238, 0.88);
+  padding: 6px 8px;
+  font-size: 12px;
+  color: #6a3d33;
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.route-mode-chip em {
+  font-style: normal;
+  color: #8f1a11;
+  font-weight: 700;
+}
+
 .route-card .route-meta {
   display: flex;
   justify-content: space-between;
@@ -642,6 +795,7 @@ select:focus {
   padding: 10px 12px;
   display: grid;
   gap: 6px;
+  cursor: pointer;
 }
 
 .plan-step h5 {
@@ -660,10 +814,55 @@ select:focus {
   font-size: 12px;
 }
 
+.plan-step-mode-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: 6px;
+}
+
+.plan-step-mode {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  border-radius: 8px;
+  border: 1px solid rgba(145, 84, 64, 0.16);
+  background: rgba(254, 248, 241, 0.85);
+  padding: 6px 8px;
+  font-size: 12px;
+  color: #6a4037;
+}
+
+.plan-step-mode.recommended {
+  border-color: rgba(192, 40, 28, 0.42);
+  background: rgba(255, 237, 227, 0.9);
+  color: #7f241b;
+  font-weight: 700;
+}
+
 .plan-step-source {
   margin-left: 6px;
   color: #8f1a11;
   font-weight: 700;
+}
+
+.plan-step-traffic {
+  margin-left: 4px;
+  color: #9a4a24;
+  font-weight: 700;
+}
+
+.map-shanghai-mask {
+  pointer-events: none;
+}
+
+.button:focus-visible,
+.scenic-item:focus-visible,
+.plan-step:focus-visible {
+  outline: 3px solid rgba(192, 40, 28, 0.42);
+  outline-offset: 2px;
 }
 
 .timeline {
@@ -803,6 +1002,10 @@ select:focus {
     grid-column: span 2;
   }
 
+  .travel-model-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
   .stats-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
@@ -822,6 +1025,10 @@ select:focus {
 
   #scene3d {
     min-height: 320px;
+  }
+
+  #scenePanoramaImage {
+    min-height: 240px;
   }
 }
 
@@ -851,6 +1058,14 @@ select:focus {
     flex: 1 1 145px;
   }
 
+  .travel-model-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .travel-model-actions .button {
+    width: 100%;
+  }
+
   .stats-grid {
     grid-template-columns: 1fr;
   }
@@ -861,5 +1076,13 @@ select:focus {
 
   #scene3d {
     min-height: 280px;
+  }
+
+  #scenePanoramaImage {
+    min-height: 200px;
+  }
+
+  .route-modes {
+    grid-template-columns: 1fr;
   }
 }

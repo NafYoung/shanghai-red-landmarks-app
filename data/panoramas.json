@@ -1,0 +1,101 @@
+[
+  {
+    "spotId": "sihang",
+    "provider": "baidu",
+    "panoIdOrUrl": "121.46694444,31.24207778",
+    "heading": 100,
+    "pitch": -5,
+    "fov": 100,
+    "copyright": "Baidu Panorama"
+  },
+  {
+    "spotId": "site1",
+    "provider": "baidu",
+    "panoIdOrUrl": "121.4707,31.2221",
+    "heading": 35,
+    "pitch": -4,
+    "fov": 100,
+    "copyright": "Baidu Panorama"
+  },
+  {
+    "spotId": "site2",
+    "provider": "baidu",
+    "panoIdOrUrl": "121.4622,31.2261",
+    "heading": 40,
+    "pitch": -4,
+    "fov": 100,
+    "copyright": "Baidu Panorama"
+  },
+  {
+    "spotId": "site4",
+    "provider": "baidu",
+    "panoIdOrUrl": "121.4804129,31.2571553",
+    "heading": 54,
+    "pitch": -6,
+    "fov": 98,
+    "copyright": "Baidu Panorama"
+  },
+  {
+    "spotId": "longhua",
+    "provider": "baidu",
+    "panoIdOrUrl": "121.4442664,31.1776591",
+    "heading": 145,
+    "pitch": -4,
+    "fov": 100,
+    "copyright": "Baidu Panorama"
+  },
+  {
+    "spotId": "songhu",
+    "provider": "baidu",
+    "panoIdOrUrl": "121.4904388,31.4117365",
+    "heading": 122,
+    "pitch": -4,
+    "fov": 96,
+    "copyright": "Baidu Panorama"
+  },
+  {
+    "spotId": "anthem",
+    "provider": "baidu",
+    "panoIdOrUrl": "121.50973,31.26026",
+    "heading": 72,
+    "pitch": -5,
+    "fov": 100,
+    "copyright": "Baidu Panorama"
+  },
+  {
+    "spotId": "luxun",
+    "provider": "baidu",
+    "panoIdOrUrl": "121.4793996,31.2716807",
+    "heading": 48,
+    "pitch": -4,
+    "fov": 100,
+    "copyright": "Baidu Panorama"
+  },
+  {
+    "spotId": "soong",
+    "provider": "baidu",
+    "panoIdOrUrl": "121.4344177,31.2057687",
+    "heading": 30,
+    "pitch": -4,
+    "fov": 100,
+    "copyright": "Baidu Panorama"
+  },
+  {
+    "spotId": "cy",
+    "provider": "baidu",
+    "panoIdOrUrl": "121.0392608,31.0089868",
+    "heading": 110,
+    "pitch": -3,
+    "fov": 98,
+    "copyright": "Baidu Panorama"
+  },
+  {
+    "spotId": "youth",
+    "provider": "baidu",
+    "panoIdOrUrl": "121.46361111,31.22194389",
+    "heading": 38,
+    "pitch": -5,
+    "fov": 100,
+    "copyright": "Baidu Panorama"
+  }
+]
